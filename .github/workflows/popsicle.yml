@@ -208,11 +208,8 @@ jobs:
           cd "$KERNEL_ROOT/common"
           rm -rf KernelSU drivers/kernelsu
 
-          echo "📥 Running KowSU setup.sh..."
-          curl -LSs \
-            https://raw.githubusercontent.com/KOWX712/KernelSU/master/kernel/setup.sh \
-            | bash -s master
-
+          echo "📥 Adding KowSU..."
+          curl -LSs "https://raw.githubusercontent.com/KOWX712/KernelSU/master/kernel/setup.sh" | bash -s master
           echo "✅ KowSU integrated"
 
       # ----------------------------------------------------------------
