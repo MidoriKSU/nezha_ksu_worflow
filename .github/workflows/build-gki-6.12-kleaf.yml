@@ -275,15 +275,14 @@ jobs:
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = ${{ github.event.inputs.sub_level }}/" \
             "$COMMON_DIR/Makefile"
 
-          # Patch setlocalversion to emit our fixed suffix.
-          # NOTE: We only strip the dirty-check block, then append our echo.
-          # This keeps the file mostly intact so Bazel sees minimal change.
-          sed -i '/# Check for uncommitted changes\./,/fi/d' \
-            "$COMMON_DIR/scripts/setlocalversion" || true
-          # Append our spoofed suffix as the final output
-          printf '\n# Spoofed version suffix\necho "-android16-5-g6928909e3148-abogki444322847-4k"\n' \
-            >> "$COMMON_DIR/scripts/setlocalversion"
-          echo "✅ setlocalversion patched"
+          # Replace setlocalversion entirely so only our suffix is emitted.
+          # Appending fails because the original script already outputs a
+          # suffix from the branch name — resulting in a doubled string that
+          # exceeds the 64-char kernel version limit.
+          printf '#!/bin/sh\necho "-android16-5-g6928909e3148-abogki444322847-4k"\n' \
+            > "$COMMON_DIR/scripts/setlocalversion"
+          chmod +x "$COMMON_DIR/scripts/setlocalversion"
+          echo "✅ setlocalversion replaced"
 
           # Build metadata — passed into sandbox via --action_env below
           echo "KBUILD_BUILD_USER=kleaf"                             >> $GITHUB_ENV
