@@ -105,7 +105,7 @@ jobs:
           echo "✅ Host dependencies installed"
 
       # ----------------------------------------------------------------
-      # 3. Install the repo tool
+      # 3. Install the repo tool + depmod wrapper
       # ----------------------------------------------------------------
       - name: Install repo
         run: |
@@ -113,6 +113,23 @@ jobs:
           curl -LSs https://storage.googleapis.com/git-repo-downloads/repo \
             -o "$HOME/bin/repo"
           chmod +x "$HOME/bin/repo"
+
+          # Kleaf's KernelModulesInstall calls depmod with -d (--basedir).
+          # The Ubuntu runner ships an older kmod where -d is unrecognized;
+          # the correct short flag there is -b. We install a wrapper in
+          # $HOME/bin (prepended to PATH below) that silently maps -d → -b.
+          printf '%s\n' \
+            '#!/bin/sh' \
+            'args=""' \
+            'for a in "$@"; do' \
+            '  case "$a" in -d) a="-b" ;; esac' \
+            '  args="$args $a"' \
+            'done' \
+            'exec /usr/sbin/depmod $args' \
+            > "$HOME/bin/depmod"
+          chmod +x "$HOME/bin/depmod"
+          echo "✅ depmod wrapper installed (-d → -b translation)"
+
           echo "$HOME/bin" >> $GITHUB_PATH
           git config --global user.email "ci@github.actions"
           git config --global user.name  "GitHub Actions"
