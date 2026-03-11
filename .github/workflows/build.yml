@@ -405,15 +405,15 @@ jobs:
           git clone --depth=1 --branch=gki-2.0 \
             https://github.com/WildKernels/AnyKernel3 AnyKernel3
 
-          # Copy kernel images from bazel-bin
-          cp "$BAZEL_OUT/Image"      AnyKernel3/
-          cp "$BAZEL_OUT/Image.lz4"  AnyKernel3/
+          # Copy kernel images from DIST_DIR (set by Kleaf --destdir)
+          cp "$DIST_DIR/Image"     AnyKernel3/
+          cp "$DIST_DIR/Image.lz4" AnyKernel3/
           # Create gzip variant
-          gzip -n -k -f -9 "$BAZEL_OUT/Image"
-          cp "$BAZEL_OUT/Image.gz"   AnyKernel3/ 2>/dev/null || \
+          gzip -n -k -f -9 "$DIST_DIR/Image"
+          cp "$DIST_DIR/Image.gz"  AnyKernel3/ 2>/dev/null || \
             gzip -n -k -f -9 AnyKernel3/Image -c > AnyKernel3/Image.gz
 
-          [ -f "$BAZEL_OUT/dtb.img" ] && cp "$BAZEL_OUT/dtb.img" AnyKernel3/
+          [ -f "$DIST_DIR/dtb.img" ] && cp "$DIST_DIR/dtb.img" AnyKernel3/
 
           cd AnyKernel3 && rm -rf .git .github
           ZIP_NAME="AK3-${FULL_VER}-kowsu-r${KSU_VERSION}-susfs${SUSFS_VERSION}.zip"
