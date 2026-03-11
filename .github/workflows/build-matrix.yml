@@ -116,7 +116,7 @@ jobs:
             --repo "${{ github.repository }}" \
             --limit 100 \
             --json tagName \
-            --jq ".[] | .tagName" \
+            --jq '[.[] | .tagName] | .[]' \
             | grep -c "^${SUSFS_VERSION}-r" || true)
           SUSFS_BUILD_NUM=$(( ${SUSFS_BUILD_NUM:-0} + 1 ))
 
