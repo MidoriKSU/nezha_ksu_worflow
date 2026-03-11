@@ -1,4 +1,3 @@
-
 name: Build GKI Kernel (KowSU + Kleaf)
 
 # ============================================================
@@ -34,11 +33,6 @@ on:
         required: false
         default: false
         type: boolean
-      force_clean_build:
-        description: 'Force clean Bazel build (--expunge)'
-        required: false
-        default: false
-        type: boolean
       create_release:
         description: 'Create GitHub Release'
         required: false
@@ -60,7 +54,6 @@ env:
   OS_PATCH_LEVEL:  ${{ github.event.inputs.os_patch_level }}
   KERNEL_ROOT:     ${{ github.workspace }}/android-kernel
   DIST_DIR:        ${{ github.workspace }}/dist
-  BAZEL_CACHE_DIR: ${{ github.workspace }}/.cache/bazel
   # Hardcoded — no matrix, no variant input
   KSU_VARIANT:     kowsu
 
@@ -130,19 +123,6 @@ jobs:
           echo "$HOME/bin" >> $GITHUB_PATH
           git config --global user.email "ci@github.actions"
           git config --global user.name  "GitHub Actions"
-
-      # ----------------------------------------------------------------
-      # 4. Restore Bazel disk cache
-      # ----------------------------------------------------------------
-      - name: Restore Bazel cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.BAZEL_CACHE_DIR }}
-          key: bazel-kowsu-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}.${{ github.event.inputs.sub_level }}-${{ github.sha }}
-          restore-keys: |
-            bazel-kowsu-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}.${{ github.event.inputs.sub_level }}-
-            bazel-kowsu-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}-
-            bazel-kowsu-
 
       # ----------------------------------------------------------------
       # 5. repo init + sync
@@ -374,25 +354,14 @@ jobs:
           echo "FRAGMENT=$FRAGMENT" >> $GITHUB_ENV
 
       # ----------------------------------------------------------------
-      # 13. Force-clean Bazel cache (only when requested)
-      # ----------------------------------------------------------------
-      - name: Clean Bazel cache
-        if: github.event.inputs.force_clean_build == 'true'
-        run: |
-          cd "$KERNEL_ROOT"
-          tools/bazel clean --expunge || true
-          echo "🧹 Bazel cache expunged"
-
-      # ----------------------------------------------------------------
       # 14. Build with Kleaf
       # ----------------------------------------------------------------
       - name: Build kernel (Kleaf / Bazel)
         run: |
           cd "$KERNEL_ROOT"
-          mkdir -p "$DIST_DIR" "$BAZEL_CACHE_DIR"
+          mkdir -p "$DIST_DIR"
 
           BUILD_FLAGS=(
-            "--disk_cache=$BAZEL_CACHE_DIR"
             "--config=fast"
             "--lto=none"
             "--defconfig_fragment=//common:arch/arm64/configs/ksu_susfs.fragment"
