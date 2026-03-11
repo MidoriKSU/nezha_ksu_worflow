@@ -1,4 +1,3 @@
-
 name: Build GKI Kernel (KowSU + Kleaf)
 
 # ============================================================
@@ -282,17 +281,19 @@ jobs:
           echo "🚫 Removing GKI protected exports..."
           rm -f "$COMMON_DIR/android/abi_gki_protected_exports_"* || true
 
-          # Keep kernel version string clean (no -dirty suffix)
-          sed -i '/# Check for uncommitted changes\./,/fi/d' \
-            "$COMMON_DIR/scripts/setlocalversion" || true
-
           # ── Version spoof ─────────────────────────────────────────────────
-          # Write a localversion file — kbuild reads all localversion* files
-          # in the source root and appends them to KERNELRELEASE. This is the
-          # standard mechanism and works inside Kleaf's hermetic sandbox.
-          echo "-android16-5-g6928909e3148-abogki444322847-4k" \
+          # The branch name already contains "-android16-5-maybe-dirty".
+          # setlocalversion outputs that + git hash. We want a fixed string.
+          # Make setlocalversion a no-op (return empty), then localversion-kleaf
+          # provides the full suffix we want appended to "6.12.23".
+          printf '#!/bin/sh\n' > "$COMMON_DIR/scripts/setlocalversion"
+          chmod +x "$COMMON_DIR/scripts/setlocalversion"
+
+          # Write ONLY the part after the base version (6.12.23):
+          # Result: 6.12.23-android16-5-g6928909e3148-abogki444322847-4k
+          printf '%s' "-android16-5-g6928909e3148-abogki444322847-4k" \
             > "$COMMON_DIR/localversion-kleaf"
-          echo "✅ localversion-kleaf written"
+          echo "✅ setlocalversion suppressed, localversion-kleaf written"
 
           # Patch SUBLEVEL in Makefile to match our target sublevel
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = ${{ github.event.inputs.sub_level }}/" \
