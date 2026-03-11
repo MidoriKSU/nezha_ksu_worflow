@@ -28,6 +28,11 @@ on:
         required: true
         default: '2025-05-exp'
         type: string
+      disable_susfs:
+        description: 'Disable SuSFS'
+        required: false
+        default: false
+        type: boolean
       create_release:
         description: 'Create GitHub Release'
         required: false
@@ -56,6 +61,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 300
+
+    env:
+      ENABLE_SUSFS: ${{ github.event.inputs.disable_susfs == 'true' && 'false' || 'true' }}
 
     steps:
       # ----------------------------------------------------------------
@@ -104,7 +112,7 @@ jobs:
           echo "✅ Host dependencies installed"
 
       # ----------------------------------------------------------------
-      # 3. Install the repo tool + depmod wrapper
+      # 3. Install the repo tool
       # ----------------------------------------------------------------
       - name: Install repo
         run: |
@@ -112,23 +120,6 @@ jobs:
           curl -LSs https://storage.googleapis.com/git-repo-downloads/repo \
             -o "$HOME/bin/repo"
           chmod +x "$HOME/bin/repo"
-
-          # Kleaf's KernelModulesInstall calls depmod with -d (--basedir).
-          # The Ubuntu runner ships an older kmod where -d is unrecognized;
-          # the correct short flag there is -b. We install a wrapper in
-          # $HOME/bin (prepended to PATH below) that silently maps -d → -b.
-          printf '%s\n' \
-            '#!/bin/sh' \
-            'args=""' \
-            'for a in "$@"; do' \
-            '  case "$a" in -d) a="-b" ;; esac' \
-            '  args="$args $a"' \
-            'done' \
-            'exec /usr/sbin/depmod $args' \
-            > "$HOME/bin/depmod"
-          chmod +x "$HOME/bin/depmod"
-          echo "✅ depmod wrapper installed (-d → -b translation)"
-
           echo "$HOME/bin" >> $GITHUB_PATH
           git config --global user.email "ci@github.actions"
           git config --global user.name  "GitHub Actions"
@@ -180,7 +171,8 @@ jobs:
           SUSFS_PATH="$KERNEL_ROOT/../susfs4ksu"
           PATCHES_PATH="$KERNEL_ROOT/../kernel_patches"
 
-          # SuSFS always cloned and applied
+          # SuSFS (always cloned — needed even when ENABLE_SUSFS=false for
+          # the version capture; patching is gated below)
           if [ -d "$SUSFS_PATH/.git" ]; then
             echo "♻️ Updating SuSFS..."
             git -C "$SUSFS_PATH" fetch --depth=1 origin "gki-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}"
@@ -249,7 +241,7 @@ jobs:
       # 10. Apply SuSFS patches
       # ----------------------------------------------------------------
       - name: Apply SuSFS patches
-        # SuSFS always enabled
+        if: env.ENABLE_SUSFS == 'true'
         run: |
           COMMON_DIR="$KERNEL_ROOT/common"
           PATCH_NAME="50_add_susfs_in_gki-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}.patch"
@@ -283,51 +275,32 @@ jobs:
           rm -f "$COMMON_DIR/android/abi_gki_protected_exports_"* || true
 
           # ── depmod fix ────────────────────────────────────────────────────
-          # Kleaf is hermetic and uses its own prebuilt depmod from:
-          #   prebuilts/kernel-build-tools/linux-x86/bin/depmod
-          # That binary supports -d. But if the sandbox falls back to the
-          # host /usr/sbin/depmod (older kmod, only knows -b), it fails.
-          # Solution: overwrite the host depmod with the prebuilt one so
-          # both the sandbox and host resolve to the same binary.
           PREBUILT_DEPMOD="$KERNEL_ROOT/prebuilts/kernel-build-tools/linux-x86/bin/depmod"
           echo "🔍 Checking prebuilt depmod: $PREBUILT_DEPMOD"
           if [ -f "$PREBUILT_DEPMOD" ]; then
-            echo "   Prebuilt depmod version: $($PREBUILT_DEPMOD -V 2>&1 || true)"
             sudo cp "$PREBUILT_DEPMOD" /usr/sbin/depmod
             sudo cp "$PREBUILT_DEPMOD" /sbin/depmod
             echo "✅ Host depmod replaced with prebuilt (supports -d)"
-            depmod -V 2>&1 || true
           else
-            echo "⚠️  Prebuilt depmod not found — listing available prebuilts:"
-            ls "$KERNEL_ROOT/prebuilts/kernel-build-tools/" 2>/dev/null || true
+            echo "⚠️  Prebuilt depmod not found"
             ls "$KERNEL_ROOT/prebuilts/kernel-build-tools/linux-x86/bin/" 2>/dev/null || true
-          fi"
+          fi
 
           # ── Kernel version spoof ──────────────────────────────────────────
-          # We set KBUILD_BUILD_* env vars and pass them via --action_env
-          # into the Bazel sandbox at build time. This avoids touching
-          # setlocalversion before the build.
-          #
-          # SUBLEVEL patch: aligns Makefile version with our target 6.12.23
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = ${{ github.event.inputs.sub_level }}/" \
             "$COMMON_DIR/Makefile"
-
-          # Replace setlocalversion entirely so only our suffix is emitted.
-          # Appending fails because the original script already outputs a
-          # suffix from the branch name — resulting in a doubled string that
-          # exceeds the 64-char kernel version limit.
           printf '#!/bin/sh\necho "-android16-5-g6928909e3148-abogki444322847-4k"\n' \
             > "$COMMON_DIR/scripts/setlocalversion"
           chmod +x "$COMMON_DIR/scripts/setlocalversion"
-          echo "✅ setlocalversion replaced"
+          echo "✅ Version spoofed"
 
-          # Build metadata — passed into sandbox via --action_env below
+          # Build metadata
           echo "KBUILD_BUILD_USER=kleaf"                             >> $GITHUB_ENV
           echo "KBUILD_BUILD_HOST=build-host"                        >> $GITHUB_ENV
           echo "KBUILD_BUILD_TIMESTAMP=Fri Sep 12 04:57:41 UTC 2025" >> $GITHUB_ENV
           echo "KBUILD_BUILD_VERSION=1"                              >> $GITHUB_ENV
 
-          # ── libbpf type cast fix ──────────────────────────────────────────
+          # libbpf type cast fix (present in some 6.12 snapshots)
           if grep -q 'next_path = strchr' \
               "$COMMON_DIR/tools/lib/bpf/libbpf.c" 2>/dev/null; then
             sed -i \
@@ -384,7 +357,8 @@ jobs:
           printf '%s\n' 'CONFIG_IP6_NF_NAT=y' >> "$FRAGMENT"
           printf '%s\n' 'CONFIG_IP6_NF_TARGET_MASQUERADE=y' >> "$FRAGMENT"
 
-          # SuSFS configs (always applied)
+          # SuSFS configs (only when enabled)
+          if [ "$ENABLE_SUSFS" = "true" ]; then
             printf '%s\n' 'CONFIG_KSU_SUSFS=y' >> "$FRAGMENT"
             printf '%s\n' 'CONFIG_KSU_SUSFS_SUS_PATH=y' >> "$FRAGMENT"
             printf '%s\n' 'CONFIG_KSU_SUSFS_SUS_MOUNT=y' >> "$FRAGMENT"
@@ -396,6 +370,7 @@ jobs:
             printf '%s\n' 'CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y' >> "$FRAGMENT"
             printf '%s\n' 'CONFIG_KSU_SUSFS_OPEN_REDIRECT=y' >> "$FRAGMENT"
             printf '%s\n' 'CONFIG_KSU_SUSFS_SUS_SU=n' >> "$FRAGMENT"
+          fi
 
           echo "📝 Fragment written:" && cat "$FRAGMENT"
           echo "FRAGMENT=$FRAGMENT" >> $GITHUB_ENV
@@ -495,7 +470,7 @@ jobs:
           **Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')
           **Kernel:** $KERNEL_VERSION
           **KowSU version:** r$KSU_VERSION
-          **SuSFS:** Enabled
+          **SuSFS:** $( [ "$ENABLE_SUSFS" = "true" ] && echo "Enabled" || echo "Disabled" )
           **Build time:** $BUILD_TIME
 
           ## Components
@@ -504,7 +479,7 @@ jobs:
           |------------|-------------------------|-------------------|
           | KowSU      | \`$KSU_COMMIT_SHORT\`   | $KSU_COMMIT_MSG   |
           | GKI common | \`$K_SHORT\`            | $K_MSG            |
-          | SuSFS      | `$SUSFS_COMMIT_SHORT` | $SUSFS_COMMIT_MSG |
+          $( [ "$ENABLE_SUSFS" = "true" ] && echo "| SuSFS      | \`$SUSFS_COMMIT_SHORT\` | $SUSFS_COMMIT_MSG |" )
 
           ## Devices
           - Xiaomi Popsicle
@@ -555,7 +530,7 @@ jobs:
           RELEASE_NOTES="**Build Date:** $(date -u '+%Y-%m-%d %H:%M UTC')
           **Kernel:** ${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}-${{ github.event.inputs.os_patch_level }}
           **Variant:** KowSU
-          **SuSFS:** ✅ Enabled
+          **SuSFS:** $( [ "${{ github.event.inputs.disable_susfs }}" = "true" ] && echo "❌ Disabled" || echo "✅ Enabled" )
 
           ### Supported Devices
           Xiaomi Popsicle
