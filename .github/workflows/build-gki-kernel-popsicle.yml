@@ -1,4 +1,4 @@
-name: Build GKI Kernel 6.12 - Xiaomi 17 Pro Max (popsicle)
+name: Build GKI Kernel android16-6.12 - Xiaomi 17 Pro Max (popsicle)
 
 on:
   workflow_dispatch:
@@ -211,34 +211,44 @@ jobs:
         run: |
           echo "📦 Smart syncing kernel and SuSFS sources..."
 
-          # 1. Smart Sync Kernel (GKI android15-6.12)
-          # NOTE: 6.12 is the kernel version shipped with Android 16 / Baklava.
-          # The upstream GKI branch is android15-6.12 on AOSP (confusing naming —
-          # "android15" refers to the platform tag, the kernel is 6.12).
+          # 1. Smart Sync Kernel (GKI android16-6.12, pinned to 2025-05-exp tag)
+          # android16-6.12 is the correct AOSP branch for kernel 6.12 / Android 16 (Baklava).
+          # 2025-05-exp is an experimental tag on that branch — we fetch the branch and then
+          # checkout the tag so depth=1 clones still work if the tag is reachable.
           if [ -d "kernel/.git" ]; then
             echo "♻️ Existing kernel tree found. Factory resetting and updating..."
             cd kernel
-            git fetch --depth=1 origin android15-6.12
-            git reset --hard origin/android15-6.12
+            git fetch --depth=1 origin android16-6.12
+            git reset --hard origin/android16-6.12
+            # Attempt to pin to the exact experimental tag if it exists
+            git fetch --depth=1 origin tag android16-6.12-2025-05-exp 2>/dev/null && \
+              git checkout android16-6.12-2025-05-exp || \
+              echo "⚠️ Tag android16-6.12-2025-05-exp not found, staying on branch HEAD"
             git clean -fdx
             cd ..
           else
-            echo "📥 Downloading kernel source (android15-6.12)..."
-            git clone --depth=1 --branch=android15-6.12 \
+            echo "📥 Downloading kernel source (android16-6.12)..."
+            git clone --depth=1 --branch=android16-6.12 \
               https://android.googlesource.com/kernel/common kernel
+            # Pin to the experimental tag if available
+            cd kernel
+            git fetch --depth=1 origin tag android16-6.12-2025-05-exp 2>/dev/null && \
+              git checkout android16-6.12-2025-05-exp || \
+              echo "⚠️ Tag android16-6.12-2025-05-exp not found, using branch HEAD"
+            cd ..
           fi
 
-          # 2. Smart Sync SuSFS (gki-android15-6.12 branch)
+          # 2. Smart Sync SuSFS (gki-android16-6.12 branch)
           if [ -d "susfs4ksu/.git" ]; then
             echo "♻️ Existing SuSFS tree found. Factory resetting and updating..."
             cd susfs4ksu
-            git fetch --depth=1 origin gki-android15-6.12
-            git reset --hard origin/gki-android15-6.12
+            git fetch --depth=1 origin gki-android16-6.12
+            git reset --hard origin/gki-android16-6.12
             git clean -fdx
             cd ..
           else
-            echo "📥 Downloading SuSFS source (gki-android15-6.12)..."
-            git clone --depth=1 --branch=gki-android15-6.12 \
+            echo "📥 Downloading SuSFS source (gki-android16-6.12)..."
+            git clone --depth=1 --branch=gki-android16-6.12 \
               https://gitlab.com/simonpunk/susfs4ksu susfs4ksu
           fi
 
@@ -357,9 +367,9 @@ jobs:
 
           cd kernel
 
-          # Apply core SuSFS patch (6.12 variant)
-          VARIANT_SUSFS_PATCH="../.github/patches/${{ matrix.variant }}/50_add_susfs_in_gki-android15-6.12.patch"
-          DEFAULT_SUSFS_PATCH="../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android15-6.12.patch"
+          # Apply core SuSFS patch (android16-6.12 variant)
+          VARIANT_SUSFS_PATCH="../.github/patches/${{ matrix.variant }}/50_add_susfs_in_gki-android16-6.12.patch"
+          DEFAULT_SUSFS_PATCH="../susfs4ksu/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
 
           if [ -f "$VARIANT_SUSFS_PATCH" ]; then
             echo "📋 Applying CUSTOM core SuSFS patch from .github/patches/${{ matrix.variant }}/..."
@@ -547,7 +557,7 @@ jobs:
           RELEASE_NOTES="**Build Date:** $(date)
           **Device:** Xiaomi 17 Pro Max (popsicle)
           **SoC:** Snapdragon 8 Elite Gen 5 (SM8850-AC)
-          **Kernel:** GKI android15-6.12
+          **Kernel:** GKI android16-6.12 (2025-05-exp) (2025-05-exp)
           **SuSFS:** ${{ inputs.disable_susfs == true && '❌ Disabled' || '✅ Enabled' }}
 
           ### Variants
@@ -585,7 +595,7 @@ jobs:
           ━━━━━━━━━━━━━━━━━━━━━
           📱 <b>Target:</b> Xiaomi 17 Pro Max (popsicle)
           💻 <b>SoC:</b> Snapdragon 8 Elite Gen 5 (SM8850-AC)
-          🌿 <b>Kernel:</b> GKI android15-6.12
+          🌿 <b>Kernel:</b> GKI android16-6.12 (2025-05-exp)
           🛠️ <b>Variant(s):</b> ${{ inputs.ksu_variant }}
           🛡️ <b>SuSFS:</b> $IS_SUSFS
           🧹 <b>Clean Build:</b> $IS_CLEAN
