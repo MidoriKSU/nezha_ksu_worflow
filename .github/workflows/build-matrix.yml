@@ -310,21 +310,21 @@ jobs:
           if [ -d "$SUSFS_PATH/.git" ]; then
             echo "♻️  Updating existing SuSFS clone..."
             git -C "$SUSFS_PATH" fetch --depth=1 origin \
-              "gki-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}"
+              "gki-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}-dev"
             git -C "$SUSFS_PATH" reset --hard \
-              "origin/gki-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}"
+              "origin/gki-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}-dev"
             git -C "$SUSFS_PATH" clean -fdx
           else
             git clone --depth=1 \
-              --branch="gki-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}" \
+              --branch="gki-${{ github.event.inputs.android_version }}-${{ github.event.inputs.kernel_version }}-dev" \
               https://gitlab.com/simonpunk/susfs4ksu "$SUSFS_PATH"
           fi
 
           # Pin to known-good commit
-          echo "📌 Pinning SuSFS to c023d8e4013e..."
+          echo "📌 Pinning SuSFS to 315af1ddffcf..."
           git -C "$SUSFS_PATH" fetch --unshallow 2>/dev/null || true
           git -C "$SUSFS_PATH" fetch origin || true
-          git -C "$SUSFS_PATH" reset --hard c023d8e4013eb8b9fcb17d46b705333f06ddae6c
+          git -C "$SUSFS_PATH" reset --hard 315af1ddffcfc946cdcc548fd1a51a737e4e9001
           git -C "$SUSFS_PATH" clean -fdx
 
           # ── kernel_patches ───────────────────────────────────────────────
