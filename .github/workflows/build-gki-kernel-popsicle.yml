@@ -409,15 +409,12 @@ jobs:
           echo "🚫 Removing GKI protected exports..."
           rm -f android/abi_gki_protected_exports_* || true
 
-          # 1. CLIDR uninitialized fix (try; may not apply on 6.12)
-          curl -LSs "https://raw.githubusercontent.com/infectedmushi/kernel_patches/main/fix-clidr-uninitialized.patch" \
-            -o /tmp/fix-clidr.patch
-          patch -p1 --forward < /tmp/fix-clidr.patch || true
-
-          # 2. Fix localversion script appending dirty flags
+          # 1. Fix localversion script appending dirty flags
+          # NOTE: CLIDR uninitialized patch removed — targets arch/arm64/kvm/sys_regs.c
+          # at a line that no longer exists in 6.12 (hunk #1 fails at 2972).
           sed -i '/# Check for uncommitted changes\./,/fi/d' ./scripts/setlocalversion
 
-          # 3. Fix libbpf compilation error (type cast)
+          # 2. Fix libbpf compilation error (type cast)
           echo "🔧 Patching libbpf.c type casting..."
           sed -i 's/next_path = strchr(s, '"'"':'"'"');/next_path = (char *)strchr(s, '"'"':'"'"');/' \
             tools/lib/bpf/libbpf.c || true
