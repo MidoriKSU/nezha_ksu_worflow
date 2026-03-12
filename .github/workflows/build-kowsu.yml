@@ -570,8 +570,6 @@ jobs:
       - name: Resolve release tag
         id: release_tag
         run: |
-          SUSFS_VERSION="${{ steps.susfs_version.outputs.susfs_version }}"
-
           # Count releases whose tag starts with this SuSFS version
           SUSFS_BUILD_NUM=$(gh release list \
             --repo "${{ github.repository }}" \
