@@ -366,6 +366,10 @@ jobs:
       - name: Setup SuSFS
         if: env.ENABLE_SUSFS == 'true'
         run: |
+          # Ensure kernel tree is pristine before patching — prevents stale hunks
+          # from a previous failed run causing "undeclared function" errors.
+          cd kernel && git clean -fdx && cd ..
+
           cp susfs4ksu/kernel_patches/fs/susfs.c kernel/fs/
           cp susfs4ksu/kernel_patches/include/linux/susfs.h kernel/include/linux/
           cp susfs4ksu/kernel_patches/include/linux/susfs_def.h kernel/include/linux/
@@ -394,10 +398,26 @@ jobs:
 
             if [ -f "$VARIANT_KSU_PATCH" ]; then
               echo "📋 Applying CUSTOM 10_enable_susfs_for_ksu patch..."
-              patch -p1 --forward < "$VARIANT_KSU_PATCH" || echo "❌ KSU SuSFS Patch Failed!"
+              patch -p1 --forward < "$VARIANT_KSU_PATCH" || echo "⚠️ KSU SuSFS Patch failed or already applied."
             else
               echo "📋 Applying DEFAULT 10_enable_susfs_for_ksu patch..."
-              patch -p1 --forward < "$DEFAULT_KSU_PATCH" || echo "❌ KSU SuSFS Patch Failed!"
+              patch -p1 --forward < "$DEFAULT_KSU_PATCH" || echo "⚠️ KSU SuSFS Patch failed or already applied."
+            fi
+
+            cd ..
+
+            # Fallback: ensure fs/exec.c has the susfs_def header included.
+            # The 50_ patch adds #include <linux/susfs_def.h> to fs/exec.c (NOT susfs.h).
+            # susfs_is_current_proc_umounted() is declared in susfs_def.h.
+            # If the include hunk failed but the call hunk applied, inject it manually.
+            if grep -q "susfs_is_current_proc_umounted\|susfs_is_current_proc_app_profile" fs/exec.c; then
+              if ! grep -q '#include <linux/susfs_def.h>' fs/exec.c; then
+                echo "🔧 Injecting missing #include <linux/susfs_def.h> into fs/exec.c..."
+                sed -i '/#include <linux\/ksm.h>/a #ifdef CONFIG_KSU_SUSFS\n#include <linux\/susfs_def.h>\n#endif' fs/exec.c
+                echo "✅ susfs_def.h injected into fs/exec.c"
+              else
+                echo "✅ fs/exec.c already has susfs_def.h included"
+              fi
             fi
           fi
 
@@ -409,10 +429,19 @@ jobs:
           echo "🚫 Removing GKI protected exports..."
           rm -f android/abi_gki_protected_exports_* || true
 
-          # 1. Fix localversion script appending dirty flags
-          # NOTE: CLIDR uninitialized patch removed — targets arch/arm64/kvm/sys_regs.c
-          # at a line that no longer exists in 6.12 (hunk #1 fails at 2972).
-          sed -i '/# Check for uncommitted changes\./,/fi/d' ./scripts/setlocalversion
+          # 1. Spoof kernel version string to match stock OTA kernel exactly.
+          # Target uname -r: 6.12.23-android16-5-g6928909e3148-abogki444322847-4k
+          # Strategy: silence setlocalversion entirely so it outputs nothing, then
+          # set CONFIG_LOCALVERSION to the full suffix we want appended after "6.12.23".
+          #
+          # setlocalversion normally appends git describe output (+dirty flags etc).
+          # We replace the script with a no-op so CONFIG_LOCALVERSION is the sole suffix.
+          cat > ./scripts/setlocalversion << 'SETLOCALVERSION_EOF'
+          #!/bin/sh
+          # Spoofed: outputs nothing so CONFIG_LOCALVERSION controls the full suffix.
+          echo ""
+          SETLOCALVERSION_EOF
+          chmod +x ./scripts/setlocalversion
 
           # 2. Fix libbpf compilation error (type cast)
           echo "🔧 Patching libbpf.c type casting..."
@@ -453,8 +482,8 @@ jobs:
           CONFIG_IP_SET=y
           CONFIG_NET_SCH_CAKE=y
           CONFIG_KSU=y
-          CONFIG_LOCALVERSION="-popsicle+"
           CONFIG_KSU_LSM_SECURITY_HOOKS=y
+          CONFIG_LOCALVERSION="-android16-5-g6928909e3148-abogki444322847-4k"
           EOF
 
           if [ "${{ env.ENABLE_SUSFS }}" = "true" ]; then
@@ -482,6 +511,10 @@ jobs:
 
           MAKE_JOBS=$(nproc)
           START_TIME=$SECONDS
+
+          export KBUILD_BUILD_USER="kleaf"
+          export KBUILD_BUILD_HOST="build-host"
+          export KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
 
           if [ "${{ env.FORCE_CLEAN }}" = "true" ]; then
             make -j$MAKE_JOBS LLVM=1 LLVM_IAS=1 LD=ld.lld O=out clean
