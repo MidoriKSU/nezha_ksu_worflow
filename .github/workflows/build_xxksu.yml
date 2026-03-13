@@ -203,7 +203,7 @@ jobs:
           git fetch --unshallow 2>&1 \
             || echo "⚠️  Could not unshallow — version count may be approximate"
 
-          BASE_VERSION=3000
+          BASE_VERSION=30000
           COMMIT_COUNT=$(/usr/bin/git rev-list --count HEAD)
           KSU_VERSION=$(expr $COMMIT_COUNT + $BASE_VERSION)
 
