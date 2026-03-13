@@ -22,11 +22,6 @@ on:
         required: false
         default: false
         type: boolean
-      enable_telegram:
-        description: 'Enable Telegram notifications'
-        required: false
-        default: true
-        type: boolean
       create_release:
         description: 'Create GitHub Release with artifacts'
         required: false
@@ -206,7 +201,7 @@ jobs:
           rm -rf AnyKernel3 release-assets changelogs || true
 
       - name: Checkout Workflow Repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           clean: false
 
@@ -429,28 +424,37 @@ jobs:
           echo "🚫 Removing GKI protected exports..."
           rm -f android/abi_gki_protected_exports_* || true
 
-          # 1. Spoof kernel version string to match stock OTA kernel exactly.
-          # Target uname -r: 6.12.23-android16-5-g6928909e3148-abogki444322847-4k
-          # Strategy: silence setlocalversion entirely so it outputs nothing, then
-          # set CONFIG_LOCALVERSION to the full suffix we want appended after "6.12.23".
+          # 1. Spoof kernel version string, compiler banner, build user/host, and
+          #    build timestamp to match stock OTA kernel exactly using the three
+          #    patches stored in .github/patches/gki/:
           #
-          # setlocalversion normally appends git describe output (+dirty flags etc).
-          # We replace the script with a no-op so CONFIG_LOCALVERSION is the sole suffix.
-          cat > ./scripts/setlocalversion << 'SETLOCALVERSION_EOF'
-          #!/bin/sh
-          # Spoofed: outputs nothing so CONFIG_LOCALVERSION controls the full suffix.
-          echo ""
-          SETLOCALVERSION_EOF
-          chmod +x ./scripts/setlocalversion
+          #    60_scripts_mkcompile_h.patch   — spoofs LINUX_COMPILE_BY (kleaf),
+          #                                     LINUX_COMPILE_HOST (build-host), and
+          #                                     LINUX_COMPILER (full clang 19.0.1 banner
+          #                                     with +pgo, +bolt, +lto, +mlgo flags)
+          #    61_scripts_setlocalversion.patch — hardcodes localversion suffix to
+          #                                     -android16-5-g6928909e3148-abogki444322847-4k
+          #    62_init_Makefile.patch          — hardcodes build-version=1 and
+          #                                     build-timestamp to Fri Sep 12 04:57:41 UTC 2025
+          GKI_PATCH_DIR="../.github/patches/gki"
+
+          for patch in \
+            "$GKI_PATCH_DIR/60_scripts_mkcompile_h.patch" \
+            "$GKI_PATCH_DIR/61_scripts_setlocalversion.patch" \
+            "$GKI_PATCH_DIR/62_init_Makefile.patch"; do
+            if [ -f "$patch" ]; then
+              echo "📋 Applying $(basename $patch)..."
+              patch -p1 --forward < "$patch" || echo "⚠️ $(basename $patch) failed or already applied."
+            else
+              echo "❌ Missing patch: $patch"
+              exit 1
+            fi
+          done
 
           # 2. Fix libbpf compilation error (type cast)
           echo "🔧 Patching libbpf.c type casting..."
           sed -i 's/next_path = strchr(s, '"'"':'"'"');/next_path = (char *)strchr(s, '"'"':'"'"');/' \
             tools/lib/bpf/libbpf.c || true
-
-          # NOTE: The OnePlus 12 / SM8650 Wi-Fi patch from the Pixel build has been
-          # intentionally removed — it targets a different SoC (SM8650) and will not
-          # apply cleanly to the SM8850 / 6.12 tree.
 
       - name: Configure Kernel
         run: |
@@ -519,10 +523,6 @@ jobs:
           MAKE_JOBS=$(nproc)
           START_TIME=$SECONDS
 
-          export KBUILD_BUILD_USER="kleaf"
-          export KBUILD_BUILD_HOST="build-host"
-          export KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
-
           if [ "${{ env.FORCE_CLEAN }}" = "true" ]; then
             make -j$MAKE_JOBS LLVM=1 LLVM_IAS=1 LD=ld.lld O=out clean
           fi
@@ -579,7 +579,7 @@ jobs:
     if: always() && needs.setup.outputs.create_release == 'true' && needs.build.result != 'cancelled'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download All Artifacts
         uses: actions/download-artifact@v8
@@ -615,40 +615,3 @@ jobs:
             ./*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  notify:
-    needs: [setup, create_release, build]
-    runs-on: ubuntu-latest
-    if: always() && inputs.enable_telegram
-    steps:
-      - name: Send Telegram Notification
-        run: |
-          STATUS="${{ needs.build.result }}"
-          ICON="✅"
-          [ "$STATUS" != "success" ] && ICON="⚠️"
-          [ "$STATUS" == "failure" ] && ICON="❌"
-
-          IS_CLEAN="${{ inputs.force_clean_build == true && 'Yes' || 'No' }}"
-          IS_SUSFS="${{ inputs.disable_susfs == true && 'Disabled' || 'Enabled' }}"
-          DO_REL="${{ inputs.create_release == true && 'Yes' || 'No' }}"
-
-          cat << EOF > tg_message.txt
-          $ICON <b>Kernel Build ${STATUS^^}</b>
-          ━━━━━━━━━━━━━━━━━━━━━
-          📱 <b>Target:</b> Xiaomi 17 Pro Max (popsicle)
-          💻 <b>SoC:</b> Snapdragon 8 Elite Gen 5 (SM8850-AC)
-          🌿 <b>Kernel:</b> GKI android16-6.12 (2025-05-exp)
-          🛠️ <b>Variant(s):</b> ${{ inputs.ksu_variant }}
-          🛡️ <b>SuSFS:</b> $IS_SUSFS
-          🧹 <b>Clean Build:</b> $IS_CLEAN
-          📦 <b>Release Created:</b> $DO_REL
-          👤 <b>Triggered by:</b> <a href="https://github.com/${{ github.actor }}">${{ github.actor }}</a>
-
-          🔗 <a href="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Run Logs & Artifacts</a>
-          EOF
-
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -d text="$(cat tg_message.txt)" \
-            -d parse_mode="HTML" \
-            -d disable_web_page_preview=true
