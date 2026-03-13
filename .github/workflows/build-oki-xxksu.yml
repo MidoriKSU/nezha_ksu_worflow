@@ -104,8 +104,8 @@ jobs:
           path: ${{ env.CCACHE_DIR }}
           key: ccache-xxksu-${{ github.ref_name }}-${{ github.run_id }}
           restore-keys: |
-            ccache-xxksu-${{ github.ref_name }}-
-            ccache-xxksu-
+            ccache-oki-xxksu-${{ github.ref_name }}-
+            ccache-oki-xxksu-
 
       - name: Configure ccache
         run: |
