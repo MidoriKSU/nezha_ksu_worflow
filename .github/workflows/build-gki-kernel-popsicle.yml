@@ -168,10 +168,13 @@ jobs:
         run: |
           mkdir -p $HOME/clang
           cd $HOME/clang
-          wget -q https://github.com/ZyCromerZ/Clang/releases/download/22.0.0git-20250928-release/Clang-22.0.0git-20250928.tar.gz -O clang.tar.gz
+          # Using AOSP prebuilt clang-r536225 (clang 19.0.1) — the exact toolchain
+          # used to build the stock android16-6.12 kernel per /proc/version:
+          # "Android (14043575, based on r536225) clang version 19.0.1"
+          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r536225.tar.gz -O clang.tar.gz
           tar -xzf clang.tar.gz
           rm clang.tar.gz
-          echo "✅ $($HOME/clang/bin/clang --version | head -1)"
+          echo "✅ $(bin/clang --version | head -1)"
           echo "CLANG_BIN=$HOME/clang/bin" >> $GITHUB_ENV
           echo "$HOME/clang/bin" >> $GITHUB_PATH
 
@@ -480,6 +483,8 @@ jobs:
           CONFIG_KSU=y
           CONFIG_KSU_LSM_SECURITY_HOOKS=y
           CONFIG_LOCALVERSION="-android16-5-g6928909e3148-abogki444322847-4k"
+          CONFIG_DEBUG_INFO_BTF=n
+          CONFIG_DEBUG_INFO_BTF_MODULES=n
           EOF
 
           if [ "${{ env.ENABLE_SUSFS }}" = "true" ]; then
