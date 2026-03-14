@@ -489,6 +489,8 @@ jobs:
           export CROSS_COMPILE="${{ env.ARM64_TOOLCHAIN }}"
           export CROSS_COMPILE_COMPAT="${{ env.ARM32_TOOLCHAIN }}"
 
+          echo "📋 Available defconfigs:"
+          ls arch/arm64/configs/
           make ARCH=arm64 LLVM=1 LLVM_IAS=1 LD=ld.lld O=out gki_defconfig
 
           cat << 'EOF' | sed 's/^[[:space:]]*//' >> out/.config
