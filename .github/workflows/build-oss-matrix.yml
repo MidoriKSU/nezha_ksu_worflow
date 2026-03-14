@@ -152,8 +152,7 @@ jobs:
 #            ksu_owner:      KOWX712
 #            ksu_repo:       KernelSU
 #            ksu_branch:     master
-#            setup_url:      https://raw.githubusercontent.com/KOWX712/KernelSU/master/kernel/setup.sh
-#            susfs_core:     from_susfs4ksu
+##            susfs_core:     from_susfs4ksu
 #            susfs_patch:    kowsu/10_enable_susfs_for_ksu.patch
 #            susfs_patch_src: patches_dir
 
@@ -163,7 +162,6 @@ jobs:
             ksu_owner:      tiann
             ksu_repo:       KernelSU
             ksu_branch:     main
-            setup_url:      https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh
             susfs_core:     from_susfs4ksu
             susfs_patch:    10_enable_susfs_for_ksu.patch
             susfs_patch_src: susfs4ksu
@@ -174,7 +172,6 @@ jobs:
             ksu_owner:      ReSukiSU
             ksu_repo:       ReSukiSU
             ksu_branch:     main
-            setup_url:      https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh
             susfs_core:     from_susfs4ksu
             susfs_patch:    ""
             susfs_patch_src: ""
@@ -336,17 +333,31 @@ jobs:
           } >> "$GITHUB_ENV"
 
       # -----------------------------------------------------------------------
-      # 7. Integrate KSU variant via upstream setup.sh
+      # 7. Integrate KSU variant — manual clone + symlink (no setup.sh)
       # -----------------------------------------------------------------------
       - name: Setup ${{ matrix.variant.label }}
         working-directory: ${{ env.KERNEL_ROOT }}/common
         run: |
+          KSU_SETUP_START=$SECONDS
           rm -rf KernelSU drivers/kernelsu
-          echo "📥 Integrating ${{ matrix.variant.label }}..."
-          KERNEL_DIR="$GITHUB_WORKSPACE/android-kernel/common" \
-            bash <(curl -LSs "${{ matrix.variant.setup_url }}") \
-            ${{ matrix.variant.ksu_branch }}
-          echo "✅ ${{ matrix.variant.label }} integrated"
+          echo "📥 Cloning ${{ matrix.variant.label }}..."
+          git clone --depth=1 \
+            --branch="${{ matrix.variant.ksu_branch }}" \
+            "https://github.com/${{ matrix.variant.ksu_owner }}/${{ matrix.variant.ksu_repo }}" \
+            KernelSU
+
+          # Symlink KernelSU/kernel → drivers/kernelsu
+          echo "🔗 Symlinking KernelSU/kernel → drivers/kernelsu..."
+          ln -sf ../KernelSU/kernel drivers/kernelsu
+
+          # Wire into drivers/Makefile and drivers/Kconfig
+          grep -q "kernelsu" drivers/Makefile \
+            || echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+          grep -q "kernelsu" drivers/Kconfig \
+            || sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+
+          echo "KSU_SETUP_TIME=$((SECONDS - KSU_SETUP_START))s" >> $GITHUB_ENV
+          echo "✅ ${{ matrix.variant.label }} integrated in $((SECONDS - KSU_SETUP_START))s"
 
       # -----------------------------------------------------------------------
       # 8. Capture KSU version
