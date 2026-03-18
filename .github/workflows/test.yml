@@ -1,4 +1,4 @@
-name: Build 6.12.23 GKI Kernel with xxKSU test
+name: Build 6.12.23 GKI Kernel with xxKSU hook
 
 env:
   TZ: Asia/Shanghai
@@ -72,7 +72,7 @@ jobs:
           done
 
 
-      - name: 添加KernelSU (xxKSU)
+      - name: Setup KernelSU (xxKSU)
         id: ksu_version
         run: |
           cd kernel_workspace/common
