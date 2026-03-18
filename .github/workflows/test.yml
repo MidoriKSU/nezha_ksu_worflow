@@ -1,4 +1,4 @@
-name: Build 6.12.23 GKI Kernel with xxKSU hook
+name: Build 6.12.23 GKI Kernel with xxKSU hookless
 
 env:
   TZ: Asia/Shanghai
@@ -96,6 +96,13 @@ jobs:
         run: |
           cd kernel_workspace
           echo "CONFIG_KSU=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_EXTRAS=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_ALLOWLIST_WORKAROUND=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_DEBUG=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_KPROBES_HOOK=n" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_TAMPER_SYSCALL_TABLE=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_LSM_SECURITY_HOOKS=" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_THRONE_TRACKER_ALWAYS_THREADED=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_TMPFS_XATTR=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_TMPFS_POSIX_ACL=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> ./common/arch/arm64/configs/gki_defconfig
