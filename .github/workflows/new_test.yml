@@ -1,4 +1,4 @@
-name: (New Xiaomi/OPPO-OnePlus-Realme Universal) 6.12.23 GKI Kernel
+name: (New Xiaomi/OPPO-OnePlus-Realme Universal) 6.12.23 GKI Kernel Test
 
 env:
   TZ: Asia/Shanghai
@@ -56,18 +56,16 @@ jobs:
 
           echo "--- Fetching kernel source (Google official) ---"
           mkdir -p "$KW/common"
-          aria2c -s16 -x16 -k1M \
-            "https://android.googlesource.com/kernel/common/+archive/refs/heads/android16-6.12-2025-06.tar.gz" \
-            -o "$KW/common.tar.gz"
+          aria2c -s16 -x16 -k1M --dir="$KW" -o "common.tar.gz" \
+            "https://android.googlesource.com/kernel/common/+archive/refs/heads/android16-6.12-2025-06.tar.gz"
           tar xzf "$KW/common.tar.gz" -C "$KW/common"
           rm -f "$KW/common.tar.gz"
           echo "Kernel source: OK ($(ls $KW/common | wc -l) entries)"
 
           echo "--- Fetching clang-r536225 (Google official, main branch) ---"
           mkdir -p "$KW/clang19"
-          aria2c -s16 -x16 -k1M \
-            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r536225.tar.gz" \
-            -o "$KW/clang.tar.gz"
+          aria2c -s16 -x16 -k1M --dir="$KW" -o "clang.tar.gz" \
+            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r536225.tar.gz"
           tar xzf "$KW/clang.tar.gz" -C "$KW/clang19"
           rm -f "$KW/clang.tar.gz"
           echo "Clang: OK ($(ls $KW/clang19 | wc -l) entries)"
@@ -83,9 +81,8 @@ jobs:
 
           echo "--- Fetching Rust 1.82.0 toolchain ---"
           mkdir -p "$KW/rust"
-          aria2c -s16 -x16 -k1M \
-            https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip \
-            -o "$KW/rust.zip"
+          aria2c -s16 -x16 -k1M --dir="$KW" -o "rust.zip" \
+            "https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip"
           unzip -q "$KW/rust.zip" -d "$KW/rust"
           rm -f "$KW/rust.zip"
           echo "Rust: OK ($(ls $KW/rust/bin 2>/dev/null | wc -l) entries in bin/)"
