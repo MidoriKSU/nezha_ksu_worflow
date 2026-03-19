@@ -1,4 +1,4 @@
-name: (New Xiaomi/OPPO-OnePlus-Realme Universal) 6.12.23 GKI Kernel test
+name: (New Xiaomi/OPPO-OnePlus-Realme Universal) 6.12.23 GKI Kernel
 
 env:
   TZ: Asia/Shanghai
@@ -87,9 +87,33 @@ jobs:
           rm -rf rust.zip &
 
           wait
-          echo "All sources and llvm-clang19 toolchain initialized!"
+          echo "All sources and toolchain components initialized!"
+
+          # Auto-detect clang layout from googlesource tarball.
+          # googlesource per-directory tarballs typically extract with a matching subdirectory
+          # (e.g. clang-r536225/bin/) but flat extraction is also possible.
+          echo "=== Detecting clang19 layout ==="
+          ls -la kernel_workspace/clang19/
+          if [ -x "kernel_workspace/clang19/bin/clang" ]; then
+            CLANG_BIN="$(pwd)/kernel_workspace/clang19/bin"
+            CLANG_LIB="$(pwd)/kernel_workspace/clang19/lib"
+            echo "Layout: flat (clang19/bin/clang)"
+          elif [ -x "kernel_workspace/clang19/clang-r536225/bin/clang" ]; then
+            CLANG_BIN="$(pwd)/kernel_workspace/clang19/clang-r536225/bin"
+            CLANG_LIB="$(pwd)/kernel_workspace/clang19/clang-r536225/lib"
+            echo "Layout: subdirectory (clang19/clang-r536225/bin/clang)"
+          else
+            echo "ERROR: Could not locate clang binary. Full search:"
+            find kernel_workspace/clang19 -name "clang" -type f 2>/dev/null || echo "no clang binary found"
+            exit 1
+          fi
+          echo "CLANG_BIN=$CLANG_BIN" >> $GITHUB_ENV
+          echo "CLANG_LIB=$CLANG_LIB" >> $GITHUB_ENV
+          echo "Resolved clang: $CLANG_BIN/clang"
+          $CLANG_BIN/clang --version | head -n1
+
           echo "Stripping -dirty suffix..."
-          for f in common/scripts/setlocalversion; do
+          for f in kernel_workspace/common/scripts/setlocalversion; do
             sed -i 's/ -dirty//g' "$f"
             sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$f"
           done
@@ -98,16 +122,13 @@ jobs:
       - name: Add KernelSU
         id: ksu_version
         run: |
-          # Enter kernel workspace
           cd kernel_workspace
           if [[ ${{ github.event.inputs.ksu_type }} == "resukisu" ]]; then
             echo "Configuring ReSukiSU..."
             curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash -s main
             echo 'CONFIG_KSU_FULL_NAME_FORMAT="%TAG_NAME%-%COMMIT_SHA%@cctv18"' >> ./common/arch/arm64/configs/gki_defconfig
             cd ./KernelSU
-            # Generate custom version number (based on commit count); fall back to 114514 on failure
             KSU_VERSION=$(expr $(git rev-list --count main) + 30700 2>/dev/null || echo 114514)
-            # Store version number to GitHub environment variable
             echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
             echo "ksuver=$KSU_VERSION" >> $GITHUB_OUTPUT
           elif [[ ${{ github.event.inputs.ksu_type }} == "ksu" ]]; then
@@ -144,8 +165,7 @@ jobs:
             cd ./KernelSU
             patch -p1 < 10_enable_susfs_for_ksu.patch || true
           fi
-          
-          
+
       - name: Add SuSFS config options
         if: inputs.susfs_enable
         run: |
@@ -165,7 +185,7 @@ jobs:
           echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> ./common/arch/arm64/configs/gki_defconfig
-          
+
       - name: Add KSU & other config options
         run: |
           cd kernel_workspace
@@ -185,17 +205,12 @@ jobs:
           # Rust config for 6.12 kernel
           echo "CONFIG_RUST=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_ANDROID_BINDER_IPC_RUST=m" >> ./common/arch/arm64/configs/gki_defconfig
-          
+
       - name: Enable enhanced network feature configs
         run: |
           cd kernel_workspace
-          # Enable enhanced Netfilter firewall extension modules; support address-type-based match rules;
-          # enable IP set support; improve firewall rule flexibility; support more complex traffic filtering
           echo "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_NETFILTER_XT_SET=y" >> ./common/arch/arm64/configs/gki_defconfig
-          # Enable IP set framework and its various data structure implementations;
-          # provides efficient large-scale IP address management; improves firewall rule processing
-          # efficiency; reduces memory usage
           echo "CONFIG_IP_SET=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_IP_SET_MAX=65534" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_IP_SET_BITMAP_IP=y" >> ./common/arch/arm64/configs/gki_defconfig
@@ -214,12 +229,8 @@ jobs:
           echo "CONFIG_IP_SET_HASH_NETPORT=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_IP_SET_HASH_NETIFACE=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_IP_SET_LIST_SET=y" >> ./common/arch/arm64/configs/gki_defconfig
-          # Enable IPv6 network address translation
           echo "CONFIG_IP6_NF_NAT=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_IP6_NF_TARGET_MASQUERADE=y" >> ./common/arch/arm64/configs/gki_defconfig
-          # On some devices, vintf compatibility checks show "Your device has run into a problem" when
-          # CONFIG_IP6_NF_NAT is enabled. A config fix patch is applied here to hide CONFIG_IP6_NF_NAT=y
-          # from vintf at compile time without affecting the compiled functionality.
           cd common
           wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/other_patch/config.patch
           patch -p1 -F 3 < config.patch || true
@@ -228,53 +239,13 @@ jobs:
         run: |
           echo "Adding BBR and other congestion control algorithms..."
           cd kernel_workspace
-          # Enable TCP congestion control advanced selector (required)
           echo "CONFIG_TCP_CONG_ADVANCED=y" >> ./common/arch/arm64/configs/gki_defconfig
-            ################################################################################################################################
-            # BBR: A bandwidth-based congestion control algorithm that models the network directly instead
-            # of using loss/delay signals to infer congestion, actively avoiding true network congestion.
-            # Offers high throughput, low latency, and loss resilience. However on mobile devices, continuous
-            # bandwidth/RTT probing and high-frequency packet sending increases CPU and radio module power
-            # draw, leading to higher power consumption and heat.
-            # Mobile base station buffers are typically shallow (~50ms), so BBR's ProbeRTT phase may cause
-            # sudden throughput drops; network switches (WiFi->5G) require re-probing, adding latency or
-            # causing rate oscillation (brief stutters). BBR also exhibits RTT unfairness and can be overly
-            # aggressive against loss-based flows in mixed environments (e.g. BBR + CUBIC co-existence),
-            # starving other applications' bandwidth (e.g. background updates impacting foreground video).
-            # Although BBR reduces queuing delay, resists packet loss, and achieves high bandwidth
-            # utilization, Android does not use BBR by default due to its power cost and rate instability.
-            # Instead it uses CUBIC, which strikes the best balance between throughput, stability,
-            # compatibility, and efficiency. Consider carefully whether you actually need BBR before enabling.
-            ################################################################################################################################
           echo "CONFIG_TCP_CONG_BBR=y" >> ./common/arch/arm64/configs/gki_defconfig
-            # CUBIC: Android's default TCP congestion control algorithm. Best balance of throughput,
-            # stability, compatibility, and energy efficiency. High compatibility and fairness, strong
-            # resistance to network fluctuations, low computational overhead. Preferred for most mobile
-            # scenarios.
           echo "CONFIG_TCP_CONG_CUBIC=y" >> ./common/arch/arm64/configs/gki_defconfig
-            # VEGAS: A delay-based congestion control algorithm. Treats an increase in RTT as a sign of
-            # congestion; grows the congestion window when RTT decreases and shrinks it when RTT increases.
           echo "CONFIG_TCP_CONG_VEGAS=y" >> ./common/arch/arm64/configs/gki_defconfig
-            # New Vegas: An improved Vegas with better RTT measurement and competition fairness.
-            # More accurate congestion detection; improved coexistence with Reno/CUBIC.
           echo "CONFIG_TCP_CONG_NV=y" >> ./common/arch/arm64/configs/gki_defconfig
-            # Westwood+: Dynamically sets congestion window and slow-start threshold based on bandwidth
-            # estimation (ACK arrival rate). Fast recovery; suited for wireless networks
-            # (distinguishes congestion loss from wireless loss).
           echo "CONFIG_TCP_CONG_WESTWOOD=y" >> ./common/arch/arm64/configs/gki_defconfig
-            # HTCP: A loss-based algorithm using AIMD to control the congestion window. Dynamically
-            # adjusts the growth factor based on RTT; combines delay and loss signals.
-            # Optimized for high-latency, high-speed networks.
           echo "CONFIG_TCP_CONG_HTCP=y" >> ./common/arch/arm64/configs/gki_defconfig
-            # Brutal: Maximizes throughput via active probing and aggressive bandwidth seizure. No
-            # congestion window cap; does not reduce window on mild loss (<20%); avoids BBR-style
-            # ProbeRTT phases; maintains a consistently high send rate. In co-existence with Reno/CUBIC,
-            # Brutal can seize 90%+ of bandwidth via high-frequency packet sending. Suited for high-loss
-            # weak-network environments (e.g. public Wi-Fi, cellular) and uplink-sensitive use cases such
-            # as live streaming or cloud gaming where throughput takes priority over latency. Improves
-            # weak-network throughput and counters ISP QoS throttling. However, TCP Brutal only works
-            # correctly when the application explicitly sets bandwidth parameters per TCP connection;
-            # most Android apps do not support this, so do NOT set TCP Brutal as the default algorithm.
           echo "CONFIG_TCP_CONG_BRUTAL=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_DEFAULT_TCP_CONG=cubic" >> ./common/arch/arm64/configs/gki_defconfig
 
@@ -297,16 +268,17 @@ jobs:
           fi
           sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
           echo "CONFIG_LOCALVERSION_AUTO=n" >> ./common/arch/arm64/configs/gki_defconfig
-           
+
       - name: Build kernel
         run: |
           WORKDIR="$(pwd)"
-          export PATH="$WORKDIR/kernel_workspace/clang19/bin:$PATH"
+          # CLANG_BIN / CLANG_LIB resolved at install time and persisted via GITHUB_ENV
+          export PATH="${{ env.CLANG_BIN }}:$PATH"
           export PATH="$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
           export PATH="$WORKDIR/kernel_workspace/rust/bin:$PATH"
-          export CLANG_DIR="$WORKDIR/kernel_workspace/clang19/bin"
-          CLANG_VERSION="$($CLANG_DIR/clang --version | head -n 1)"
-          LLD_VERSION="$($CLANG_DIR/ld.lld --version | head -n 1)"
+          export CLANG_DIR="${{ env.CLANG_BIN }}"
+          CLANG_VERSION="$(${{ env.CLANG_BIN }}/clang --version | head -n 1)"
+          LLD_VERSION="$(${{ env.CLANG_BIN }}/ld.lld --version | head -n 1)"
           RUSTC_VERSION="$(rustc -V 2>/dev/null | head -n1)"
           BINDGEN_VERSION="$(bindgen --version 2>/dev/null | head -n1)"
           echo "Compiler info:"
@@ -315,7 +287,7 @@ jobs:
           echo "Rustc version: $RUSTC_VERSION"
           echo "Bindgen version: $BINDGEN_VERSION"
           pahole_version=$(pahole --version 2>/dev/null | head -n1); [ -z "$pahole_version" ] && echo "pahole: not installed" || echo "pahole version: $pahole_version"
-          
+
           cd kernel_workspace/common
           wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfakestat.so
           wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfaketimeMT.so
@@ -326,7 +298,7 @@ jobs:
           echo "FAKETIME=$FAKETIME" >> $GITHUB_ENV
           SO_DIR=$(pwd)
           export PRELOAD_LIBS="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
-          export REAL_CLANG_PATH="$WORKDIR/kernel_workspace/clang19/bin/clang"
+          export REAL_CLANG_PATH="${{ env.CLANG_BIN }}/clang"
           # Create CC (compiler) wrapper
           echo '#!/bin/bash' > cc-wrapper
           echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> cc-wrapper
@@ -339,7 +311,7 @@ jobs:
           echo 'export FAKESTAT="'$FAKESTAT'"' >> ld-wrapper
           echo 'export FAKETIME="'$FAKETIME'"' >> ld-wrapper
           echo 'ld.lld "$@"' >> ld-wrapper
-          
+
           # Test whether the time hijack wrappers are working correctly
           echo "--- [Wrapper Test] Creating generic time hijack test script ---"
           echo '#!/bin/bash' > test-wrapper.sh
@@ -347,7 +319,7 @@ jobs:
           echo 'export FAKESTAT="'$FAKESTAT'"' >> test-wrapper.sh
           echo 'export FAKETIME="'$FAKETIME'"' >> test-wrapper.sh
           echo 'echo ">>> Wrapper internal environment check complete."' >> test-wrapper.sh
-          echo 'exec "$@"' >> test-wrapper.sh # Execute all passed arguments
+          echo 'exec "$@"' >> test-wrapper.sh
           chmod +x test-wrapper.sh
           echo "--- [Wrapper Test] Testing (date) command ---"
           ./test-wrapper.sh date
@@ -358,22 +330,19 @@ jobs:
           echo "--- Pre-build environment time: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
           echo "--- Pre-build environment file timestamp: ---"
           LD_PRELOAD=$PRELOAD_LIBS stat ./Makefile
-          
+
           # 6.12 kernel make core configuration:
-          # 1. Remap physical paths (the 6.12 kernel introduced Rust code; the symbol versioning tool
-          #    changed to gendwarfksyms, which cannot correctly preprocess absolute paths. We must manually
-          #    remap absolute paths to relative paths, otherwise kernel symbol checksums will be wrong.)
+          # 1. Remap physical paths
           COMMON_REAL_PATH=$(pwd -P)
           ROOT_REAL_PATH=$(dirname "$COMMON_REAL_PATH")
           KCFLAGS+=" -fdebug-prefix-map=$ROOT_REAL_PATH=."
           KCFLAGS+=" -fmacro-prefix-map=$ROOT_REAL_PATH=."
           KCFLAGS+=" -ffile-prefix-map=$ROOT_REAL_PATH=."
-          # 2. Declare Rust and related tools (without this, the pre-build Rust environment check script
-          #    scripts/rust_is_available.sh will fail, preventing Rust code from being compiled.)
+          # 2. Declare Rust and related tools
           export RUSTC="rustc"
           export BINDGEN="bindgen"
           export CC="clang"
-          export LIBCLANG_PATH="$WORKDIR/kernel_workspace/clang19/lib"
+          export LIBCLANG_PATH="${{ env.CLANG_LIB }}"
           # 3. Configure KCFLAGS
           KCFLAGS+=" -no-canonical-prefixes"
           KCFLAGS+=" -O2"
@@ -382,7 +351,7 @@ jobs:
           KCFLAGS+=" -fno-stack-protector"
           KCFLAGS+=" -D__ANDROID_COMMON_KERNEL__"
           export KCFLAGS
-          # 4. Configure other tools and options (not strictly required; added for redundancy/safety)
+          # 4. Configure other tools and options
           export HOSTCC=clang
           export LD="ld.lld"
           export HOSTLD=ld.lld
@@ -393,14 +362,12 @@ jobs:
           export OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump OBJSIZE=llvm-size STRIP=llvm-strip
           # 5. Run official environment setup script before building
           source "./_setup_env.sh" 2>/dev/null || true
-          # 6. Spoof build identity and timestamp (injected directly via KBUILD variables,
-          #    which take priority over any time-hijack preload library)
+          # 6. Spoof build identity and timestamp
           export KBUILD_BUILD_USER=kleaf
           export KBUILD_BUILD_HOST=build-host
           export KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
-          
-          # Clean up unnecessary .NET, Android NDK, Haskell, CodeQL runtimes in parallel with the kernel
-          # build to free disk space without blocking subsequent steps
+
+          # Clean up unnecessary runtimes in parallel with the kernel build
           sudo rm -rf /usr/share/dotnet &
           sudo rm -rf /usr/local/lib/android &
           sudo rm -rf /opt/ghc &
@@ -408,8 +375,7 @@ jobs:
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="clang" LD="ld.lld" OBJCOPY="llvm-objcopy" O=out gki_defconfig &&
           export CC="$(pwd)/cc-wrapper" && export LD="$(pwd)/ld-wrapper" &&
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" OBJCOPY="llvm-objcopy" O=out Image
-          
-          # Post-build time hijack secondary verification
+
           echo "--- Post-build environment time: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
           echo "--- Post-build environment file timestamp: ---"
           LD_PRELOAD=$PRELOAD_LIBS stat ./Makefile
@@ -443,8 +409,7 @@ jobs:
           fi
           zip -r ../$AK3_NAME ./*
           echo "ak3name=$AK3_NAME" >> $GITHUB_OUTPUT
-          
-          # Append debug info comment to AK3 zip
+
           CLEAN_SUB_VERSION="${{ env.SUB_VERSION }}"
           CLEAN_SUB_VERSION="${CLEAN_SUB_VERSION%_mtk}"
           if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
@@ -479,7 +444,7 @@ jobs:
       contents: write
       packages: write
       actions: read
-      
+
     steps:
       - name: Download ZIP artifact
         uses: actions/download-artifact@v8
@@ -515,7 +480,7 @@ jobs:
             KSU_TYPENAME="No built-in KSU"
           fi
           echo "KSU_TYPENAME=$KSU_TYPENAME" >> $GITHUB_ENV
-         
+
       - name: Create release
         id: create_release
         uses: softprops/action-gh-release@v2.6.1
