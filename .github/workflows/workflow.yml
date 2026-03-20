@@ -543,12 +543,12 @@ jobs:
           **SuSFS:** ${{ inputs.disable_susfs == true && '❌ Disabled' || '✅ Enabled' }}
           
           ### Devices Supported
-          - Pixel 8, 8a, 8 Pro
+          - Popsicle
           
           Flash ZIP in Kernel Flasher or extract Image to patch boot.img manually."
           
           gh release create "build-${{ github.run_number }}" \
-            --title "Android 14 Kernel Build #${{ github.run_number }}" \
+            --title "Android 16 Kernel Build #${{ github.run_number }}" \
             --notes "$RELEASE_NOTES" \
             --repo "${{ github.repository }}" \
             ./*.zip
