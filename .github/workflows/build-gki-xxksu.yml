@@ -207,7 +207,7 @@ jobs:
       - name: Apply manual hooks patches
         run: |
           cd kernel_workspace/common
-          patch -p1 < $GITHUB_WORKSPACE/.github/patches/gki/manual-hooks-1.8.patch
+          patch -p1 < $GITHUB_WORKSPACE/.github/patches/gki/manual-security-hooks-v1.8.patch
           patch -p1 < $GITHUB_WORKSPACE/.github/patches/gki/scope-min-hooks-v1.9.patch
 
       - name: Build kernel
