@@ -374,4 +374,4 @@ jobs:
             > ⚠️ **Always back up your `boot` partition** with [KernelFlasher](https://github.com/capntrips/KernelFlasher) before flashing any custom kernel.
           draft: false
           prerelease: false
-          files: release_zips/AnyKernel3_*.zip
+          files: release_zips/ReSukiSU_*.zip
