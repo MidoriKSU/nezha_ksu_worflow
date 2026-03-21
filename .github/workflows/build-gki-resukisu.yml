@@ -93,11 +93,6 @@ jobs:
           unzip -q rust.zip -d rust
           rm -f rust.zip
 
-      - name: Fetch build tools
-        run: |
-          aria2c -s16 -x16 -k1M "${{ env.TOOLCHAIN_BASE }}/build-tools.zip" -o build-tools.zip
-          unzip -q build-tools.zip
-          rm -f build-tools.zip
 
       # ── KernelSU ─────────────────────────────
 
@@ -198,7 +193,7 @@ jobs:
       - name: Build kernel image
         run: |
           WORKDIR="$(pwd)"
-          export PATH="${WORKDIR}/clang19/bin:${WORKDIR}/build-tools/bin:${WORKDIR}/rust/bin:${PATH}"
+          export PATH="${WORKDIR}/clang19/bin:${WORKDIR}/rust/bin:${PATH}"
 
           echo "::group::Toolchain versions"
           clang   --version | head -1
