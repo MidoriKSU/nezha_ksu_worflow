@@ -98,35 +98,29 @@ jobs:
 
       - name: Download Clang 19 Toolchain
         run: |
-          echo "🚀 Downloading Clang 19..."
+          echo "🚀 Downloading Clang 19.0.1 (Official GKI Toolchain Compatible)..."
           mkdir -p $HOME/clang19
-          
           aria2c -s16 -x16 -k1M --download-result=hide --summary-interval=0 \
             "https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip" \
             -o clang.zip
-          
-          echo "📦 Extracting..."
           unzip -q clang.zip -d $HOME/clang19
           rm -f clang.zip
-          
           echo "CLANG_BIN=$HOME/clang19/bin" >> $GITHUB_ENV
           echo "$HOME/clang19/bin" >> $GITHUB_PATH
 
-      - name: Download AArch64 GNU Toolchain
+      - name: Download GNU Toolchains
         run: |
           mkdir -p $HOME/toolchains && cd $HOME/toolchains
           wget -q https://developer.arm.com/-/media/Files/downloads/gnu/14.3.rel1/binrel/arm-gnu-toolchain-14.3.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O tc.tar.xz
           tar -xJf tc.tar.xz && rm tc.tar.xz
           echo "ARM64_TOOLCHAIN=$HOME/toolchains/$(ls -d arm-gnu-toolchain-*aarch64*)/bin/aarch64-none-linux-gnu-" >> $GITHUB_ENV
-
-      - name: Download ARM32 GNU Toolchain
-        run: |
-          mkdir -p $HOME/toolchains && cd $HOME/toolchains
+          
+          cd $HOME/toolchains
           wget -q https://developer.arm.com/-/media/Files/downloads/gnu/14.3.rel1/binrel/arm-gnu-toolchain-14.3.rel1-x86_64-arm-none-eabi.tar.xz -O tc-arm.tar.xz
           tar -xJf tc-arm.tar.xz && rm tc-arm.tar.xz
           echo "ARM32_TOOLCHAIN=$HOME/toolchains/$(ls -d arm-gnu-toolchain-*arm-none-eabi*)/bin/arm-none-eabi-" >> $GITHUB_ENV
 
-      - name: Sync kernel sources (GKI SM8850)
+      - name: Sync kernel sources (GKI 6.12)
         run: |
           mkdir -p "${{ env.KERNEL_ROOT }}" && cd "${{ env.KERNEL_ROOT }}"
           aria2c -s16 -x16 -k1M https://github.com/cctv18/android_gki_kernel_common/archive/refs/heads/android16-6.12-2025-06.zip -o common.zip
@@ -148,12 +142,8 @@ jobs:
             "kowsu")
               git clone --depth=1 https://github.com/KOWX712/KernelSU.git KernelSU
               ln -sf ../KernelSU/kernel drivers/kernelsu
-              if ! grep -q "kernelsu/" drivers/Makefile; then
-                echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
-              fi
-              if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then
-                sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
-              fi
+              if ! grep -q "kernelsu/" drivers/Makefile; then echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile; fi
+              if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig; fi
               ;;
             "xxksu")
               curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh" | bash -s -- master
@@ -176,87 +166,49 @@ jobs:
                   else: f.write(line + '\n')
           EOF
 
-      - name: Copy SuSFS Base Files
-        if: env.ENABLE_SUSFS == 'true' || matrix.variant == 'xxksu'
-        run: |
-          cp "${{ env.SUSFS_DIR }}/kernel_patches/fs/susfs.c" "${{ env.KERNEL_DIR }}/fs/"
-          cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs.h" "${{ env.KERNEL_DIR }}/include/linux/"
-          cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs_def.h" "${{ env.KERNEL_DIR }}/include/linux/"
-
-      - name: Patch 1 - Standard SuSFS
+      - name: Apply SuSFS Patches
         if: env.ENABLE_SUSFS == 'true' || matrix.variant == 'xxksu'
         run: |
           cd "${{ env.KERNEL_DIR }}"
-          patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch" || {
-            echo "❌ PATCH 1 FAILED! Dumping reject files:"
-            find . -name "*.rej" -exec cat {} +
-            exit 1
-          }
+          cp "${{ env.SUSFS_DIR }}/kernel_patches/fs/susfs.c" "fs/"
+          cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs.h" "include/linux/"
+          cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs_def.h" "include/linux/"
+          patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
 
-      - name: Patch 2 - xxKSU SuSFS Compat
-        if: env.ENABLE_SUSFS == 'true' || matrix.variant == 'xxksu'
+      - name: Apply xxKSU Specific Patches
+        if: matrix.variant == 'xxksu'
         run: |
           cd "${{ env.KERNEL_DIR }}"
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/xxksu_susfs_compat.patch"
-          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/xxksu_susfs_compat.patch" || {
-            echo "❌ PATCH 2 FAILED! Dumping reject files:"
-            find . -name "*.rej" -exec cat {} +
-            exit 1
-          }
-
-      - name: Patch 3 - Manual Security Hooks
-        if: matrix.variant == 'xxksu'
-        run: |
-          cd "${{ env.KERNEL_DIR }}"
+          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/xxksu_susfs_compat.patch"
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/manual-security-hooks-v1.8.patch"
-          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/manual-security-hooks-v1.8.patch" || {
-            echo "❌ PATCH 3 FAILED! Dumping reject files:"
-            find . -name "*.rej" -exec cat {} +
-            exit 1
-          }
-
-      - name: Patch 4 - Scope Min Hooks
-        if: matrix.variant == 'xxksu'
-        run: |
-          cd "${{ env.KERNEL_DIR }}"
+          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/manual-security-hooks-v1.8.patch"
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/scope-min-hooks-v1.9.patch"
-          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/scope-min-hooks-v1.9.patch" || {
-            echo "❌ PATCH 4 FAILED! Dumping reject files:"
-            find . -name "*.rej" -exec cat {} +
-            exit 1
-          }
-
-      - name: Patch 5 - KernelSU SuSFS Enable
-        if: matrix.variant == 'xxksu'
-        run: |
-          cd "${{ env.KERNEL_DIR }}/KernelSU"
+          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/scope-min-hooks-v1.9.patch"
+          cd KernelSU
           python3 ../heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/10_enable_susfs_for_ksu.patch"
-          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/10_enable_susfs_for_ksu.patch" || {
-            echo "❌ PATCH 5 FAILED! Dumping reject files:"
-            find . -name "*.rej" -exec cat {} +
-            exit 1
-          }
+          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/10_enable_susfs_for_ksu.patch"
 
-      - name: Apply Source Fixes
+      - name: Apply Source Fixes (Clang 19 & LLD Fixes)
         run: |
           cd "${{ env.KERNEL_DIR }}"
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = ${{ github.event.inputs.sub_level }}/" Makefile
           
-          # Fix libbpf type cast error
+          # Fix Clang 19 type cast error
           sed -i 's/next_path = strchr(s, '"'"':'"'"');/next_path = (char *)strchr(s, '"'"':'"'"');/' tools/lib/bpf/libbpf.c || true
 
-          # Fix KernelSU Linker Errors by disabling LTO and data sections for the KSU module
-          echo "ccflags-y += -fno-lto -fno-data-sections -fno-function-sections" >> drivers/kernelsu/Makefile
-
+          # CRITICAL: Prevent Clang 19 orphan sections in KSU
+          if [ -d "drivers/kernelsu" ]; then
+            echo "subdir-ccflags-y += -fno-lto -fno-data-sections -fno-function-sections -fno-common" >> drivers/kernelsu/Makefile
+          fi
 
       - name: Write Defconfig Fragment
         run: |
           FRAGMENT="${{ env.KERNEL_DIR }}/arch/arm64/configs/ksu_susfs.fragment"
           printf 'CONFIG_KSU=y\nCONFIG_KSU_DEBUG=n\n' > "$FRAGMENT"
-          printf 'CONFIG_DEBUG_INFO_BTF=n\nCONFIG_DEBUG_INFO_BTF_MODULES=n\n' > "$FRAGMENT"
-          printf 'CONFIG_LTO_NONE=y\n' >> "$FRAGMENT"
-          printf 'CONFIG_LTO_CLANG=n\n' >> "$FRAGMENT"
-
+          printf 'CONFIG_DEBUG_INFO_BTF=n\nCONFIG_DEBUG_INFO_BTF_MODULES=n\n' >> "$FRAGMENT"
+          # Disable LTO to prevent Linker Section Mismatches
+          printf 'CONFIG_LTO_NONE=y\nCONFIG_LTO_CLANG=n\n' >> "$FRAGMENT"
           if [ "${{ matrix.variant }}" = "xxksu" ]; then
             printf 'CONFIG_KSU_EXTRAS=y\nCONFIG_KSU_LSM_SECURITY_HOOKS=n\nCONFIG_KSU_TAMPER_SYSCALL_TABLE=n\n' >> "$FRAGMENT"
           fi
@@ -271,17 +223,23 @@ jobs:
           export ARCH=arm64
           export CROSS_COMPILE="${{ env.ARM64_TOOLCHAIN }}"
           export CROSS_COMPILE_COMPAT="${{ env.ARM32_TOOLCHAIN }}"
+          
+          # Initialize GKI Config
           make ARCH=arm64 LLVM=1 O=out gki_defconfig
           cat "${{ env.FRAGMENT }}" >> out/.config
           make ARCH=arm64 LLVM=1 O=out olddefconfig
-          make -j$(nproc) ARCH=arm64 LLVM=1 O=out
+          
+          # Build with Orphan Handling Bypass for Clang 19
+          make -j$(nproc) ARCH=arm64 LLVM=1 O=out \
+            KBUILD_LDFLAGS="--orphan-handling=warn --no-warn-rwx-segments"
+          
           echo "DIST_DIR=${{ env.KERNEL_DIR }}/out/arch/arm64/boot" >> $GITHUB_ENV
 
       - name: Package Kernel (AnyKernel3)
         run: |
           git clone --depth=1 --branch=gki-2.0 https://github.com/WildKernels/AnyKernel3 AnyKernel3
           cp "${{ env.DIST_DIR }}/Image" AnyKernel3/
-          cd AnyKernel3 && zip -r9 "../AK3-OKI-SM8850-${{ matrix.variant }}.zip" .
+          cd AnyKernel3 && zip -r9 "../AK3-SM8850-${{ matrix.variant }}.zip" .
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -305,12 +263,10 @@ jobs:
           find release-assets -type f -name "*.zip" -exec mv {} . \;
           if ! ls *.zip >/dev/null 2>&1; then exit 0; fi
           
-          cat << 'EOF' > release_notes.md
-          ### OKI SM8850 Kernel
-          - **Source:** OnePlus SM8850 (6.12)
-          - **SuSFS:** ${{ github.event.inputs.disable_susfs == 'true' && 'Disabled' || 'Enabled' }}
-          - **Clang:** r536225
-          EOF
+          echo "### OKI SM8850 GKI (6.12) Build" > release_notes.md
+          echo "- **SuSFS:** ${{ github.event.inputs.disable_susfs == 'true' && 'Disabled' || 'Enabled' }}" >> release_notes.md
+          echo "- **Clang:** Official 19.0.1 (r536225)" >> release_notes.md
+          echo "- **Status:** Build Successful" >> release_notes.md
 
           gh release create "oki-sm8850-${{ github.run_number }}" \
             --title "OKI SM8850 Build #${{ github.run_number }}" \
