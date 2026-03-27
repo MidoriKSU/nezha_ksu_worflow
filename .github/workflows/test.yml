@@ -161,31 +161,31 @@ jobs:
 
       - name: Create Patch Healer
         run: |
-          cat > "${{ github.workspace }}/kernel_workspace/common/heal_patch.py" << 'PYEOF'
-             import sys
-             with open(sys.argv[1], 'r', encoding='utf-8') as f:
-             lines = f.read().splitlines()
-             with open(sys.argv[1], 'w', encoding='utf-8', newline='\n') as f:
-             in_hunk = False
-             for line in lines:
-             if line.startswith('@@ '):
-             in_hunk = True
-             f.write(line + '\n')
-             continue
-             if line.startswith(('--- ', '+++ ')):
-             in_hunk = False
-             f.write(line + '\n')
-             continue
-             if not in_hunk:
-             f.write(line + '\n')
-            continue
-              if len(line) == 0:
-            f.write(' \n')
-             elif line[0] not in ['+', '-', ' ', '\\']:
-            f.write(' ' + line + '\n')
-            else:
-            f.write(line + '\n')
-           PYEOF
+          cat > "${{ env.KERNEL_DIR }}/heal_patch.py" << 'PYEOF'
+          import sys
+          with open(sys.argv[1], 'r', encoding='utf-8') as f:
+              lines = f.read().splitlines()
+          with open(sys.argv[1], 'w', encoding='utf-8', newline='\n') as f:
+              in_hunk = False
+              for line in lines:
+                  if line.startswith('@@ '):
+                      in_hunk = True
+                      f.write(line + '\n')
+                      continue
+                  if line.startswith(('--- ', '+++ ')):
+                      in_hunk = False
+                      f.write(line + '\n')
+                      continue
+                  if not in_hunk:
+                      f.write(line + '\n')
+                      continue
+                  if len(line) == 0:
+                      f.write(' \n')
+                  elif line[0] not in ['+', '-', ' ', '\\']:
+                      f.write(' ' + line + '\n')
+                  else:
+                      f.write(line + '\n')
+          PYEOF
 
       - name: Apply SuSFS Patches
         if: env.ENABLE_SUSFS == 'true'
