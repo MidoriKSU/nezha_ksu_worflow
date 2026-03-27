@@ -161,7 +161,7 @@ jobs:
 
       - name: Create Patch Healer
         run: |
-          cat > "${{ env.KERNEL_DIR }}/heal_patch.py" << 'PYEOF'
+          cat > "${{ github.workspace }}/kernel_workspace/common/heal_patch.py" << 'PYEOF'
           import sys
           with open(sys.argv[1], 'r', encoding='utf-8') as f:
               lines = f.read().splitlines()
