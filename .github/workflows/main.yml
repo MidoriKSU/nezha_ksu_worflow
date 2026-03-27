@@ -1,0 +1,55 @@
+name: Build GKI Kernel Main
+
+# Concurrency ensures that if you start a new build, any currently running identical builds are cancelled to save runner minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      ksu_variant:
+        description: 'KernelSU variant to build'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - kowsu
+          - xxksu
+      gki_version:
+        description: 'Target GKI Version (Sublevel & Patch)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - '6.12.23 (2025-05-exp)'
+          - '6.12.23 (2025-06)'
+          - '6.12.30 (2025-07)'
+          - '6.12.38 (2025-08)'
+          - '6.12.38 (2025-09)'
+          - '6.12.58 (2025-12)'
+          - '6.12.69 (2026-03)'
+          - '6.12.X (lts)'
+      disable_susfs:
+        description: 'Disable SuSFS features'
+        required: false
+        default: false
+        type: boolean
+      create_release:
+        description: 'Publish a GitHub Release'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  build-a16-6-12:
+    # This calls your specific Android 16 worker workflow and passes the inputs down to it
+    uses: ./.github/workflows/kernel-a16-6-12.yml
+    secrets: inherit
+    with:
+      ksu_variant: ${{ inputs.ksu_variant }}
+      gki_version: ${{ inputs.gki_version }}
+      disable_susfs: ${{ inputs.disable_susfs }}
+      create_release: ${{ inputs.create_release }}
