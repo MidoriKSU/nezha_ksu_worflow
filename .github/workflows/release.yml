@@ -1,0 +1,87 @@
+name: Publish GitHub Release
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: 'The YYMMDD tag to use for the release'
+        required: true
+        type: string
+      gki_version:
+        description: 'The target GKI version (e.g., 6.12.23)'
+        required: true
+        type: string
+      variant_input:
+        description: 'The KSU variant chosen by the user'
+        required: true
+        type: string
+      susfs_enabled:
+        description: 'Whether SuSFS is globally enabled (true/false string)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Generate Release & Notes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download All Build Artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: kernel-*
+          path: release_zips
+          merge-multiple: true
+
+      - name: Generate Time Metadata
+        id: time
+        run: echo "time_fmt=$(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M:%S')" >> $GITHUB_OUTPUT
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "${{ inputs.release_tag }}"
+          name: "GKI 6.12 — ${{ inputs.release_tag }}"
+          generate_release_notes: true
+          body: |
+            ## Kernel Build Details
+            | Field          | Value |
+            | :------------- | :---- |
+            | **Kernel** | `6.12` (${{ inputs.gki_version }}) |
+            | **KSU Variant**| `${{ inputs.variant_input }}` |
+            | **SuSFS (KowSU)** | `${{ inputs.susfs_enabled == 'true' && 'Enabled' || 'Disabled' }}` |
+            | **SuSFS (xxKSU)** | `Disabled` |
+            | **Compiler** | Google Prebuilt Clang + Rust |
+            | **Build Time** | ${{ steps.time.outputs.time_fmt }} (CST) |
+
+            ## Contributors
+            <a href="https://github.com/tiann"><img src="https://github.com/tiann.png" width="45" height="45" style="border-radius: 50%; margin-right: 10px;" alt="tiann"></a>
+            <a href="https://github.com/backslashxx"><img src="https://github.com/backslashxx.png" width="45" height="45" style="border-radius: 50%; margin-right: 10px;" alt="backslashxx"></a>
+            <a href="https://github.com/KOWX712"><img src="https://github.com/KOWX712.png" width="45" height="45" style="border-radius: 50%; margin-right: 10px;" alt="KOWX712"></a>
+            <a href="https://github.com/simonpunk"><img src="https://github.com/simonpunk.png" width="45" height="45" style="border-radius: 50%; margin-right: 10px;" alt="simonpunk"></a>
+            <a href="https://github.com/osm0sis"><img src="https://github.com/osm0sis.png" width="45" height="45" style="border-radius: 50%; margin-right: 10px;" alt="osm0sis"></a>
+
+            ## Installation
+            **Method A — Recovery (recommended)**
+            1. Boot into TWRP / OrangeFox.
+            2. Flash the AnyKernel3 zip below.
+            3. Reboot.
+
+            **Method B — In-Android**
+            Use [HorizonKernelFlasher](https://github.com/libxzr/HorizonKernelFlasher) or [KernelFlasher](https://github.com/capntrips/KernelFlasher).
+
+            ## KernelSU Manager
+            | Variant | Manager |
+            | :------ | :------ |
+            | **xxKSU** | [backslashxx/KernelSU](https://github.com/backslashxx/KernelSU/releases) |
+            | **KowSU** | [KOWX712/KernelSU](https://github.com/KOWX712/KernelSU/releases) |
+
+            > ⚠️ A meta-module is required for mounting.
+            > Recommended: [mountify](https://github.com/backslashxx/mountify) (xxKSU)
+
+            > Built automatically via GitHub Actions — [run #${{ github.run_number }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          draft: false
+          prerelease: false
+          files: release_zips/*.zip
