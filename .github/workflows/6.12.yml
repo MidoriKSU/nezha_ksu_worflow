@@ -12,6 +12,7 @@ on:
           - all
           - kowsu
           - xxksu
+  
       gki_version:
         description: 'Target GKI Version (Sublevel & Patch)'
         required: true
@@ -31,6 +32,7 @@ on:
         required: false
         default: false
         type: boolean
+      
       create_release:
         description: 'Publish a GitHub Release'
         required: false
@@ -237,7 +239,7 @@ jobs:
           PYEOF
 
       - name: Apply SuSFS Patches
-        if: env.ENABLE_SUSFS == 'true'
+        if: env.ENABLE_SUSFS == 'true' && matrix.variant == 'kowsu'
         run: |
           cd kernel_workspace/common
           cp "${{ env.SUSFS_DIR }}/kernel_patches/fs/susfs.c" fs/
@@ -249,15 +251,10 @@ jobs:
         if: matrix.variant == 'xxksu'
         run: |
           cd kernel_workspace/common
-          python3 heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/xxksu_susfs_compat.patch"
-          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/xxksu_susfs_compat.patch"
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/manual-security-hooks-v1.8.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/manual-security-hooks-v1.8.patch"
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/scope-min-hooks-v1.9.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/scope-min-hooks-v1.9.patch"
-          cd KernelSU
-          python3 ../heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/10_enable_susfs_for_ksu.patch"
-          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/10_enable_susfs_for_ksu.patch"
 
       - name: Apply KowSU Patches
         if: matrix.variant == 'kowsu' && env.ENABLE_SUSFS == 'true'
@@ -273,17 +270,18 @@ jobs:
           +++ b/kernel/module/version.c
           @@ -51,8 +51,8 @@
            	return 1;
-           
-           bad_version:
+          bad_version:
           -	pr_warn("%s: disagrees about version of symbol %s\n", info->name, symname);
           -	return 0;
           +	pr_warn("%s: disagrees about version of symbol %s. (bypassed)\n", info->name, symname);
           +	return 1;
-           }
+          }
           EOF
-          patch -p1 --fuzz=3 < kmi_bypass.patch || echo "Patch failed, trying sed fallback..."
-          sed -i '/bad_version:/,/^}/ s/return 0;/return 1;/' kernel/module/version.c
-          sed -i 's/disagrees about version of symbol/disagrees about version of symbol (bypassed)/' kernel/module/version.c
+          patch -p1 --fuzz=3 < kmi_bypass.patch || {
+            echo "Patch failed, trying sed fallback..."
+            sed -i '/bad_version:/,/^}/ s/return 0;/return 1;/' kernel/module/version.c
+            sed -i 's/disagrees about version of symbol/disagrees about version of symbol (bypassed)/' kernel/module/version.c
+          }
 
       - name: Inject Defconfig Flags
         run: |
@@ -295,7 +293,7 @@ jobs:
           echo "CONFIG_HEADERS_INSTALL=n" >> $DEFCONFIG
           echo "CONFIG_RUST=y" >> $DEFCONFIG
           echo "CONFIG_ANDROID_BINDER_IPC_RUST=m" >> $DEFCONFIG
-          echo 'CONFIG_LOCALVERSION="-android16-5-g6928909e3148-abogki444322847-4k"' >> $DEFCONFIG
+          echo 'CONFIG_LOCALVERSION="-android16-gki"' >> $DEFCONFIG
           echo "CONFIG_TMPFS_XATTR=y" >> $DEFCONFIG
           echo "CONFIG_TMPFS_POSIX_ACL=y" >> $DEFCONFIG
           sed -i 's/check_defconfig//' ./common/build.config.gki
@@ -310,11 +308,12 @@ jobs:
           CONFIG_KSU_EXTRAS=y
           CONFIG_KSU_LSM_SECURITY_HOOKS=n
           CONFIG_KSU_TAMPER_SYSCALL_TABLE=n
+          CONFIG_KSU_KPROBES_KSUD=n
           EOF
           fi
 
-          # SuSFS Specifics
-          if [[ "${{ env.ENABLE_SUSFS }}" == "true" ]]; then
+          # SuSFS Specifics (Restricted to KowSU)
+          if [[ "${{ env.ENABLE_SUSFS }}" == "true" && "${{ matrix.variant }}" == "kowsu" ]]; then
             cat >> $DEFCONFIG <<-'EOF'
           CONFIG_KSU_SUSFS=y
           CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
@@ -418,8 +417,18 @@ jobs:
 
           BUILD_DATE="$(date +'%d%m%y')"
           cd AnyKernel3
-          ZIP_NAME="${{ matrix.variant }}_popsicle_6.12.${{ env.SUB_LEVEL }}+${{ env.KSU_VER }}-${BUILD_DATE}-susfs-${{ env.SUSFS_VERSION }}.zip"
-          zip -r9 "../$ZIP_NAME" *
+          
+          # Dynamically append SuSFS version only if enabled AND variant is KowSU
+          SUSFS_SUFFIX=""
+          if [[ "${{ env.ENABLE_SUSFS }}" == "true" && "${{ matrix.variant }}" == "kowsu" ]]; then
+            SUSFS_SUFFIX="-susfs-${{ env.SUSFS_VERSION }}"
+          fi
+          
+          ZIP_NAME="${{ matrix.variant }}_popsicle_6.12.${{ env.SUB_LEVEL }}+${{ env.KSU_VER }}-${BUILD_DATE}${SUSFS_SUFFIX}.zip"
+          
+          # Zip the entire directory including hidden files, excluding .git
+          zip -r9 "../$ZIP_NAME" . -x ".git*"
+          
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
       - name: Upload Build Artifact
@@ -484,13 +493,13 @@ jobs:
 
             **Method B — In-Android**
             Use [HorizonKernelFlasher](https://github.com/libxzr/HorizonKernelFlasher) or [KernelFlasher](https://github.com/capntrips/KernelFlasher).
-
+            
             ## KernelSU Manager
             | Variant | Manager |
             | :------ | :------ |
             | **xxKSU** | [backslashxx/KernelSU](https://github.com/backslashxx/KernelSU/releases) |
             | **KowSU** | [KOWX712/KernelSU](https://github.com/KOWX712/KernelSU/releases) |
-
+            
             > ⚠️ A meta-module is required for mounting.
             > Recommended: [mountify](https://github.com/backslashxx/mountify) (xxKSU)
 
