@@ -233,7 +233,6 @@ jobs:
           # Base KSU
           echo "CONFIG_KSU=y" >> $DEFCONFIG
           echo "CONFIG_KSU_DEBUG=n" >> $DEFCONFIG
-          echo "CONFIG_KSU_KPROBES_KSUD=n" >> $DEFCONFIG
           
           # xxKSU Specifics
           if [ "${{ matrix.variant }}" = "xxksu" ]; then
@@ -281,11 +280,10 @@ jobs:
           chmod 777 ./*.so
           
           # ==========================================================
-          # UPDATE THIS VARIABLE TO MATCH YOUR STOCK KERNEL TIME
-          # Format: YYYY-MM-DD HH:MM:SS
+          # STOCK KERNEL TIME SPOOFING (Based on Sept 12, 2025)
           # ==========================================================
-          export FAKESTAT="2023-10-15 12:00:00"
-          export FAKETIME="@2023-10-15 13:00:00"
+          export FAKESTAT="2025-09-12 04:57:41"
+          export FAKETIME="@2025-09-12 04:57:41"
           
           export PRELOAD_LIBS="$(pwd)/libfakestat.so $(pwd)/libfaketimeMT.so"
           export REAL_CLANG_PATH="$WORKDIR/kernel_workspace/clang19/bin/clang"
@@ -327,8 +325,9 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip
           
-          export KBUILD_BUILD_USER="builder"
+          export KBUILD_BUILD_USER="kleaf"
           export KBUILD_BUILD_HOST="build-host"
+          export KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
           
           make -j$(nproc --all) O=out gki_defconfig
           
