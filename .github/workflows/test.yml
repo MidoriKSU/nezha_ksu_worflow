@@ -1,4 +1,4 @@
-name: Build Google GKI (KowSU & xxKSU + SuSFS)
+name: Build GKI SUSFS with KowSU/xxksu
 
 on:
   workflow_dispatch:
@@ -22,6 +22,11 @@ on:
         required: true
         default: '23'
         type: string
+      os_patch_level:
+        description: 'OS patch level (e.g. 2025-06)'
+        required: true
+        default: '2025-06'
+        type: string
       create_release:
         description: 'Publish a GitHub Release'
         required: false
@@ -39,6 +44,7 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       enable_susfs: ${{ steps.config.outputs.enable_susfs }}
       sub_level: ${{ steps.config.outputs.sub_level }}
+      os_patch_level: ${{ steps.config.outputs.os_patch_level }}
       create_release: ${{ steps.config.outputs.create_release }}
       release_tag: ${{ steps.config.outputs.release_tag }}
     steps:
@@ -57,6 +63,7 @@ jobs:
         run: |
           echo "enable_susfs=${{ github.event.inputs.disable_susfs == 'true' && 'false' || 'true' }}" >> $GITHUB_OUTPUT
           echo "sub_level=${{ github.event.inputs.sub_level }}" >> $GITHUB_OUTPUT
+          echo "os_patch_level=${{ github.event.inputs.os_patch_level }}" >> $GITHUB_OUTPUT
           echo "create_release=${{ github.event.inputs.create_release }}" >> $GITHUB_OUTPUT
           echo "release_tag=v6.12.${{ github.event.inputs.sub_level }}-$(date +'%Y%m%d-%H%M')" >> $GITHUB_OUTPUT
 
@@ -73,6 +80,7 @@ jobs:
       KSU_VARIANT: ${{ matrix.variant }}
       ANDROID_VERSION: 'android16'
       KERNEL_VERSION: '6.12'
+      OS_PATCH_LEVEL: ${{ needs.setup.outputs.os_patch_level }}
 
     steps:
       - name: Checkout Workflow Repo (For Patches)
@@ -94,28 +102,33 @@ jobs:
           git clone --depth=1 https://github.com/yapixel/sh "${{ github.workspace }}/sh"
           chmod +x "${{ github.workspace }}/sh/get_ksuver.sh"
 
-      - name: Initialize Workspace & Sync Toolchains
+      - name: Install Repo Tool
+        run: |
+          mkdir -p ~/bin
+          curl -s https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
+          chmod a+x ~/bin/repo
+          sudo ln -sf ~/bin/repo /usr/bin/repo
+
+      - name: Initialize Workspace & Sync Google Source
         run: |
           mkdir -p kernel_workspace && cd kernel_workspace
 
-          echo "Downloading Official GKI 6.12 Source from Google (Archive)..."
-          aria2c -s16 -x16 -k1M https://android.googlesource.com/kernel/common/+archive/refs/heads/android16-6.12.tar.gz -o common.tar.gz
-          mkdir common
-          tar -xzf common.tar.gz -C common && rm common.tar.gz
+          FORMATTED_BRANCH="${ANDROID_VERSION}-${KERNEL_VERSION}-${OS_PATCH_LEVEL}"
+          echo "Syncing official Google kernel: common-${FORMATTED_BRANCH}"
 
-          echo "Cloning Clang 19 Toolchain..."
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip -o clang.zip
-          unzip -q clang.zip -d clang19 && rm clang.zip
+          repo init -u https://android.googlesource.com/kernel/manifest -b common-${FORMATTED_BRANCH} --depth=1
 
-          echo "Cloning Rust 1.82.0 Toolchain..."
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip -o rust.zip
-          unzip -q rust.zip -d rust && rm rust.zip
+          REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common ${FORMATTED_BRANCH})
+          DEFAULT_MANIFEST_PATH=.repo/manifests/default.xml
+          
+          if grep -q deprecated <<< "$REMOTE_BRANCH"; then
+            sed -i "s/\"${FORMATTED_BRANCH}\"/\"deprecated\/${FORMATTED_BRANCH}\"/g" $DEFAULT_MANIFEST_PATH
+            echo "⚠ Note: Branch ${FORMATTED_BRANCH} is considered deprecated. Rewrote manifest to target deprecated/ branch."
+          fi
+          
+          repo --trace sync -c -j$(nproc --all) --fail-fast --no-tags --force-sync --no-clone-bundle
 
-          echo "Cloning Build Tools..."
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/build-tools.zip -o build-tools.zip
-          unzip -q build-tools.zip && rm build-tools.zip
-
-          # Remove dirty suffix only - version suffix handled via CONFIG_LOCALVERSION
+          # Remove dirty suffix from localversion script
           sed -i 's/ -dirty//g' common/scripts/setlocalversion
 
       - name: Sync SuSFS Source
@@ -131,7 +144,6 @@ jobs:
           echo "SUSFS_VERSION=${SUSFS_VERSION:-unknown}" >> $GITHUB_ENV
 
       - name: Setup KernelSU Variant (xxKSU / KowSU)
-        if: matrix.variant != 'none'
         run: |
           cd kernel_workspace/common
           case "${{ matrix.variant }}" in
@@ -158,19 +170,15 @@ jobs:
 
       - name: Resolve KSU Version
         run: |
-          if [ "${{ matrix.variant }}" = "none" ]; then
-            echo "KSU_VER=stock" >> $GITHUB_ENV
-          else
-            case "${{ matrix.variant }}" in
-              "kowsu")
-                KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "KOWX712" "KernelSU" "${{ env.KSU_BRANCH }}" || echo "unknown")
-                ;;
-              "xxksu")
-                KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "backslashxx" "KernelSU" "${{ env.KSU_BRANCH }}" || echo "unknown")
-                ;;
-            esac
-            echo "KSU_VER=${KSU_VER}" >> $GITHUB_ENV
-          fi
+          case "${{ matrix.variant }}" in
+            "kowsu")
+              KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "KOWX712" "KernelSU" "${{ env.KSU_BRANCH }}" || echo "unknown")
+              ;;
+            "xxksu")
+              KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "backslashxx" "KernelSU" "${{ env.KSU_BRANCH }}" || echo "unknown")
+              ;;
+          esac
+          echo "KSU_VER=${KSU_VER}" >> $GITHUB_ENV
 
       - name: Create Patch Healer
         run: |
@@ -201,7 +209,7 @@ jobs:
           PYEOF
 
       - name: Apply SuSFS Patches
-        if: env.ENABLE_SUSFS == 'true' && matrix.variant != 'none'
+        if: env.ENABLE_SUSFS == 'true'
         run: |
           cd kernel_workspace/common
           cp "${{ env.SUSFS_DIR }}/kernel_patches/fs/susfs.c" fs/
@@ -264,15 +272,9 @@ jobs:
           echo "CONFIG_TMPFS_POSIX_ACL=y" >> $DEFCONFIG
           sed -i 's/check_defconfig//' ./common/build.config.gki
 
-          # Base KSU Logic (Aggressively scrub KSU if 'none' is selected)
-          if [ "${{ matrix.variant }}" = "none" ]; then
-            echo "Scrubbing pre-existing KSU configs from source..."
-            sed -i '/CONFIG_KSU/d' $DEFCONFIG
-            echo "CONFIG_KSU=n" >> $DEFCONFIG
-          else
-            echo "CONFIG_KSU=y" >> $DEFCONFIG
-            echo "CONFIG_KSU_DEBUG=n" >> $DEFCONFIG
-          fi
+          # Base KSU Logic
+          echo "CONFIG_KSU=y" >> $DEFCONFIG
+          echo "CONFIG_KSU_DEBUG=n" >> $DEFCONFIG
 
           # xxKSU Specifics
           if [ "${{ matrix.variant }}" = "xxksu" ]; then
@@ -283,8 +285,8 @@ jobs:
           EOF
           fi
 
-          # SuSFS Specifics (Only inject if not "none")
-          if [[ "${{ env.ENABLE_SUSFS }}" == "true" && "${{ matrix.variant }}" != "none" ]]; then
+          # SuSFS Specifics
+          if [[ "${{ env.ENABLE_SUSFS }}" == "true" ]]; then
             cat >> $DEFCONFIG <<-'EOF'
           CONFIG_KSU_SUSFS=y
           CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
@@ -307,11 +309,18 @@ jobs:
       - name: Compile Kernel
         run: |
           WORKDIR="$(pwd)"
-          export PATH="$WORKDIR/kernel_workspace/clang19/bin:$PATH"
-          export PATH="$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
-          export PATH="$WORKDIR/kernel_workspace/rust/bin:$PATH"
-
-          cd kernel_workspace/common
+          cd kernel_workspace
+          
+          # Dynamically detect Google's official prebuilt Toolchains synced by Repo
+          CLANG_DIR=$(find prebuilts/clang/host/linux-x86 -maxdepth 1 -name "clang-*" ! -name "clang-based_on*" | sort -V | tail -n 1)
+          RUST_DIR=$(find prebuilts/rust/linux-x86 -maxdepth 1 -type d -name "1.*" | sort -V | tail -n 1)
+          BTOOLS_DIR="prebuilts/kernel-build-tools/linux-x86"
+          
+          export PATH="$WORKDIR/kernel_workspace/$CLANG_DIR/bin:$WORKDIR/kernel_workspace/$BTOOLS_DIR/bin:$WORKDIR/kernel_workspace/$RUST_DIR/bin:$PATH"
+          export REAL_CLANG_PATH="$WORKDIR/kernel_workspace/$CLANG_DIR/bin/clang"
+          export LIBCLANG_PATH="$WORKDIR/kernel_workspace/$CLANG_DIR/lib"
+          
+          cd common
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = ${{ needs.setup.outputs.sub_level }}/" Makefile
 
           wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfakestat.so
@@ -322,7 +331,6 @@ jobs:
           export FAKETIME="@2025-09-12 04:57:41"
 
           export PRELOAD_LIBS="$(pwd)/libfakestat.so $(pwd)/libfaketimeMT.so"
-          export REAL_CLANG_PATH="$WORKDIR/kernel_workspace/clang19/bin/clang"
 
           # Create CC (Compiler) Wrapper
           echo '#!/bin/bash' > cc-wrapper
@@ -352,7 +360,6 @@ jobs:
           export RUSTC="rustc"
           export BINDGEN="bindgen"
           export CC="clang"
-          export LIBCLANG_PATH="$WORKDIR/kernel_workspace/clang19/lib"
           export HOSTCC=clang
           export LD="ld.lld"
           export HOSTLD=ld.lld
@@ -377,9 +384,6 @@ jobs:
 
           git clone https://github.com/yapixel/AnyKernel3 --depth=1
           rm -rf ./AnyKernel3/.git
-
-          sed -i '/ui_print "内核构建者: Coolapk@cctv18"/d' ./AnyKernel3/anykernel.sh || true
-
           cp ./common/out/arch/arm64/boot/Image ./AnyKernel3/
 
           BUILD_DATE="$(date +'%d%m%y')"
@@ -438,7 +442,7 @@ jobs:
             | **Kernel** | `${{ steps.meta.outputs.full_version }}` (android16-6.12, SM8850 · popsicle) |
             | **KSU Variant**| `${{ steps.meta.outputs.variant_input }}` |
             | **SuSFS** | `${{ steps.meta.outputs.susfs_enabled == 'true' && 'Disabled' || 'Enabled' }}` |
-            | **Compiler** | Clang 19 (r536225) |
+            | **Compiler** | Google Prebuilt Clang + Rust |
             | **Build Time** | ${{ steps.meta.outputs.time_fmt }} (CST) |
 
             ## Installation
