@@ -125,13 +125,14 @@ jobs:
           sed -i '/bad_version:/,/^}/ s/return 0;/return 1;/' kernel/module/version.c
           
           DEFCONFIG="arch/arm64/configs/gki_defconfig"
+          # FIX: Disable headers installation to prevent unifdef error
+          echo "CONFIG_HEADERS_INSTALL=n" >> $DEFCONFIG
           echo "CONFIG_KSU=y" >> $DEFCONFIG
           echo "CONFIG_RUST=y" >> $DEFCONFIG
           echo 'CONFIG_LOCALVERSION="-android16-gki"' >> $DEFCONFIG
           
           if [ "${{ inputs.enable_susfs }}" = "true" ]; then
              echo "CONFIG_KSU_SUSFS=y" >> $DEFCONFIG
-             # ... add other SuSFS flags as needed ...
           fi
 
       - name: Compile Kernel
@@ -142,8 +143,9 @@ jobs:
           cd common
           if [ "${{ inputs.sub_level }}" != "X" ]; then sed -i "s/^SUBLEVEL = .*/SUBLEVEL = ${{ inputs.sub_level }}/" Makefile; fi
           
+          # FIX: headers_install=0 prevents the unifdef error during parallel make
           make -j$(nproc --all) O=out LLVM=1 LLVM_IAS=1 ARCH=arm64 gki_defconfig
-          make -j$(nproc --all) O=out LLVM=1 LLVM_IAS=1 ARCH=arm64 Image
+          make -j$(nproc --all) O=out LLVM=1 LLVM_IAS=1 ARCH=arm64 headers_install=0 Image
 
       - name: Package with AnyKernel3
         run: |
@@ -159,6 +161,5 @@ jobs:
       - name: Upload Build Artifact
         uses: actions/upload-artifact@v4
         with:
-          # CRITICAL: Unique name using variant, sublevel, and patch date
           name: kernel-${{ inputs.ksu_variant }}-${{ inputs.sub_level }}-${{ inputs.os_patch_level }}
           path: kernel_workspace/${{ env.ZIP_NAME }}
