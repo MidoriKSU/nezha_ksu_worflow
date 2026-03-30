@@ -77,7 +77,7 @@ jobs:
 
     steps:
       - name: Checkout Workflow Repo (For Patches)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           clean: false
           submodules: true
@@ -355,7 +355,7 @@ jobs:
           echo "| 6.12.${{ needs.setup.outputs.sub_level }} | ${{ matrix.variant }} | ${{ env.KSU_VER }} | $SUSFS_STATE |" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Build Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.0
         with:
           name: kernel-${{ matrix.variant }}
           path: kernel_workspace/${{ env.ZIP_NAME }}
@@ -370,8 +370,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions: {contents: write}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
         with: {pattern: 'kernel-*', path: 'release_zips', merge-multiple: true}
       - name: Publish Release
         uses: softprops/action-gh-release@v2
