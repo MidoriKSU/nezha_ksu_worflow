@@ -75,16 +75,16 @@ jobs:
         run: |
           mkdir -p kernel_workspace && cd kernel_workspace
           FORMATTED_BRANCH="android16-6.12-2025-06"
-          
+
           repo init -u https://android.googlesource.com/kernel/manifest -b common-${FORMATTED_BRANCH} --depth=1
-          
+
           REMOTE_BRANCH=$(git ls-remote https://android.googlesource.com/kernel/common ${FORMATTED_BRANCH})
           DEFAULT_MANIFEST_PATH=.repo/manifests/default.xml
           if grep -q deprecated <<< "$REMOTE_BRANCH"; then
             sed -i "s/\"${FORMATTED_BRANCH}\"/\"deprecated\/${FORMATTED_BRANCH}\"/g" $DEFAULT_MANIFEST_PATH
             echo "⚠ Note: Branch ${FORMATTED_BRANCH} is considered deprecated. Manifest updated."
           fi
-          
+
           repo sync -c -j$(nproc --all) --force-sync --no-tags --no-clone-bundle
 
       - name: Initialize Toolchains
@@ -100,11 +100,14 @@ jobs:
       - name: Patch Kernel (Version String Fix)
         run: |
           cd kernel_workspace/common
-          # Prevent "Exceeds 64 characters" error by disabling git suffixes
+          # Prevent any git suffix from being appended by setlocalversion
           touch .scmversion
-          sed -i 's/^res=.*/res=""/' scripts/setlocalversion
-          sed -i 's/echo "+"/# echo "+"/' scripts/setlocalversion
-          sed -i 's/ -dirty//g' scripts/setlocalversion
+          # Replace the entire script with a no-op — most reliable approach
+          cat > scripts/setlocalversion <<-'EOF'
+          #!/bin/sh
+          echo ""
+          EOF
+          chmod +x scripts/setlocalversion
 
       - name: Setup KernelSU & SuSFS
         run: |
@@ -121,9 +124,12 @@ jobs:
         run: |
           cd kernel_workspace/common
           DEFCONFIG="arch/arm64/configs/gki_defconfig"
-          
+
           sed -i '/CONFIG_LOCALVERSION/d' $DEFCONFIG
-          echo 'CONFIG_LOCALVERSION="-android16-5-g6928909e3148-abogki444322847-4k"' >> $DEFCONFIG
+          # Keep this short: base is "6.12.23" (7 chars), LOCALVERSION must leave room
+          # for nothing — setlocalversion is now a no-op, so full string = "6.12.23" + this
+          echo 'CONFIG_LOCALVERSION="-android16-5-g6928909e3148-abogki444322847"' >> $DEFCONFIG
+          echo 'CONFIG_LOCALVERSION_AUTO=n' >> $DEFCONFIG
 
           cat >> $DEFCONFIG <<-'EOF'
           # Core Configuration
@@ -179,7 +185,7 @@ jobs:
             echo -e "CONFIG_KSU=y\nCONFIG_KSU_SUSFS=n\nCONFIG_KSU_EXTRAS=y\nCONFIG_KSU_LSM_SECURITY_HOOKS=n\nCONFIG_KSU_TAMPER_SYSCALL_TABLE=n" >> $DEFCONFIG
           elif [ "${{ matrix.variant }}" = "kowsu" ]; then
             echo "CONFIG_KSU=y" >> $DEFCONFIG
-            if [[ "${{ env.ENABLE_SUSFS }}" == "true" ]]; then
+            if [[ "${{ needs.setup.outputs.enable_susfs }}" == "true" ]]; then
               echo -e "CONFIG_KSU_SUSFS=y\nCONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> $DEFCONFIG
             else
               echo "CONFIG_KSU_SUSFS=n" >> $DEFCONFIG
@@ -220,14 +226,14 @@ jobs:
           [ -f "$IMAGE" ] || exit 1
           git clone https://github.com/yapixel/AnyKernel3 --depth=1
           cp "$IMAGE" ./AnyKernel3/ && cd AnyKernel3
-          
+
           LABEL=""
-          if [ "${{ matrix.variant }}" = "kowsu" ] && [ "${{ env.ENABLE_SUSFS }}" = "true" ]; then
-             LABEL="-susfs"
+          if [ "${{ matrix.variant }}" = "kowsu" ] && [ "${{ needs.setup.outputs.enable_susfs }}" = "true" ]; then
+            LABEL="-susfs"
           elif [ "${{ matrix.variant }}" = "xxksu" ]; then
-             LABEL="-nosusfs"
+            LABEL="-nosusfs"
           fi
-          
+
           ZIP_NAME="${{ matrix.variant }}_GKI-Official-6.12.23${LABEL}.zip"
           zip -r9 "../$ZIP_NAME" *
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
@@ -237,7 +243,8 @@ jobs:
           echo "### 🛠️ Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "| Kernel | Variant | SuSFS |" >> $GITHUB_STEP_SUMMARY
           echo "| :--- | :--- | :--- |" >> $GITHUB_STEP_SUMMARY
-          S="NO ❌"; [ "${{ matrix.variant }}" = "kowsu" ] && [ "${{ env.ENABLE_SUSFS }}" = "true" ] && S="YES ✅"
+          S="NO ❌"
+          [ "${{ matrix.variant }}" = "kowsu" ] && [ "${{ needs.setup.outputs.enable_susfs }}" = "true" ] && S="YES ✅"
           echo "| 6.12.23 Official | ${{ matrix.variant }} | $S |" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Artifact
@@ -252,7 +259,7 @@ jobs:
 
   release:
     needs: [setup, build]
-    if: needs.setup.outputs.create_release == 'true'
+    if: github.event.inputs.create_release == 'true'
     runs-on: ubuntu-latest
     permissions: {contents: write}
     steps:
