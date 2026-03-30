@@ -108,7 +108,12 @@ jobs:
           aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/build-tools.zip -o build-tools.zip
           unzip -q build-tools.zip && rm build-tools.zip
 
-          sed -i 's/ -dirty//g' common/scripts/setlocalversion
+          # Replace setlocalversion with a no-op so no git hash is ever appended
+          cat > common/scripts/setlocalversion <<-'EOF'
+          #!/bin/sh
+          echo ""
+          EOF
+          chmod +x common/scripts/setlocalversion
 
       - name: Sync SuSFS Source
         if: matrix.variant == 'kowsu' && env.ENABLE_SUSFS == 'true'
@@ -143,7 +148,7 @@ jobs:
 
       - name: Create Patch Healer
         run: |
-          cat > "${{ github.workspace }}/kernel_workspace/common/heal_patch.py" << 'PYEOF'
+          cat > "${{ github.workspace }}/kernel_workspace/common/heal_patch.py" <<'PYEOF'
           import sys
           with open(sys.argv[1], 'r', encoding='utf-8') as f:
               lines = f.read().splitlines()
@@ -157,6 +162,8 @@ jobs:
                   elif line[0] not in ['+', '-', ' ', '\\']: f.write(' ' + line + '\n')
                   else: f.write(line + '\n')
           PYEOF
+          # Strip leading whitespace indentation injected by the heredoc
+          sed -i 's/^          //' "${{ github.workspace }}/kernel_workspace/common/heal_patch.py"
 
       - name: Apply SuSFS Patches (KowSU Only)
         if: matrix.variant == 'kowsu' && env.ENABLE_SUSFS == 'true'
@@ -183,7 +190,7 @@ jobs:
       - name: Apply KMI Bypass
         run: |
           cd kernel_workspace/common
-          sed -i '/bad_version:/,/^}/ s/return 0;/return 1;/' kernel/module/version.c
+          sed -i '/bad_version:/,/^}/ s/\(^\s*\)return 0;/\1return 1;/' kernel/module/version.c
 
       - name: Inject Defconfig Flags (Full Suite)
         run: |
@@ -191,6 +198,7 @@ jobs:
           DEFCONFIG="./common/arch/arm64/configs/gki_defconfig"
           sed -i '/CONFIG_LOCALVERSION/d' $DEFCONFIG
           echo 'CONFIG_LOCALVERSION="-android16-5-g6928909e3148-abogki444322847-4k"' >> $DEFCONFIG
+          echo 'CONFIG_LOCALVERSION_AUTO=n' >> $DEFCONFIG
 
           cat >> $DEFCONFIG <<-'EOF'
           CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
@@ -240,8 +248,12 @@ jobs:
           EOF
           elif [ "${{ matrix.variant }}" = "kowsu" ]; then
             echo "CONFIG_KSU=y" >> $DEFCONFIG
-            echo "CONFIG_KSU_SUSFS=${{ env.ENABLE_SUSFS == 'true' && 'y' || 'n' }}" >> $DEFCONFIG
-            [ "${{ env.ENABLE_SUSFS }}" = "true" ] && echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> $DEFCONFIG
+            if [ "$ENABLE_SUSFS" = "true" ]; then
+              echo "CONFIG_KSU_SUSFS=y" >> $DEFCONFIG
+              echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> $DEFCONFIG
+            else
+              echo "CONFIG_KSU_SUSFS=n" >> $DEFCONFIG
+            fi
           fi
           sed -i 's/check_defconfig//' ./common/build.config.gki || true
 
@@ -268,7 +280,7 @@ jobs:
           export KBUILD_BUILD_USER="kleaf"
           export KBUILD_BUILD_HOST="build-host"
           export KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
-          export KBUILD_BUILD_VERSION="1" 
+          export KBUILD_BUILD_VERSION="1"
           export ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu-
           export CC="$(pwd)/cc-wrapper" LD=ld.lld
 
@@ -282,11 +294,11 @@ jobs:
           [ -f "$IMAGE" ] || exit 1
           git clone https://github.com/yapixel/AnyKernel3 --depth=1
           cp "$IMAGE" ./AnyKernel3/ && cd AnyKernel3
-          
+
           LABEL=""
-          [ "${{ matrix.variant }}" = "kowsu" ] && [ "${{ env.ENABLE_SUSFS }}" = "true" ] && LABEL="-susfs-${{ env.SUSFS_VERSION }}"
+          [ "${{ matrix.variant }}" = "kowsu" ] && [ "$ENABLE_SUSFS" = "true" ] && LABEL="-susfs-${{ env.SUSFS_VERSION }}"
           [ "${{ matrix.variant }}" = "xxksu" ] && LABEL="-nosusfs"
-          
+
           ZIP_NAME="${{ matrix.variant }}_6.12.${{ needs.setup.outputs.sub_level }}-${{ env.KSU_VER }}${LABEL}.zip"
           zip -r9 "../$ZIP_NAME" *
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
@@ -296,7 +308,8 @@ jobs:
           echo "### 🛠️ Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "| Kernel | Variant | KSU | SuSFS |" >> $GITHUB_STEP_SUMMARY
           echo "| :--- | :--- | :--- | :--- |" >> $GITHUB_STEP_SUMMARY
-          S="NO ❌"; [ "${{ matrix.variant }}" = "kowsu" ] && [ "${{ env.ENABLE_SUSFS }}" = "true" ] && S="YES ✅ (${{ env.SUSFS_VERSION }})"
+          S="NO ❌"
+          [ "${{ matrix.variant }}" = "kowsu" ] && [ "$ENABLE_SUSFS" = "true" ] && S="YES ✅ (${{ env.SUSFS_VERSION }})"
           echo "| 6.12.${{ needs.setup.outputs.sub_level }} | ${{ matrix.variant }} | ${{ env.KSU_VER }} | $S |" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Artifact
