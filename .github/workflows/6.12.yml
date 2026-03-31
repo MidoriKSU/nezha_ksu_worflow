@@ -153,7 +153,7 @@ jobs:
           cd kernel_workspace/common
           sed -i '/bad_version:/,/^}/ s/return 0;/return 1;/' kernel/module/version.c
 
-      - name: Inject Defconfig Flags (IPSet + BBR + KSU Isolation)
+            - name: Inject Defconfig Flags (IPSet + BBR + KSU Isolation)
         run: |
           cd kernel_workspace
           DEFCONFIG="./common/arch/arm64/configs/gki_defconfig"
@@ -247,19 +247,22 @@ jobs:
           
           echo "### 🔍 Final Config Verification ###"
           
-          # List of critical flags required for AndroidTProxyShell
+          # List of critical flags required for the transparent proxy script
           CRITICAL_FLAGS=(
             "CONFIG_KSU"
             "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE"
             "CONFIG_NETFILTER_XT_TARGET_TPROXY"
             "CONFIG_NETFILTER_XT_TARGET_REDIRECT"
+            "CONFIG_NETFILTER_XT_MATCH_CONNTRACK" # Crucial for stateful inspection
+            "CONFIG_IP6_NF_NAT"                   # Required for IPv6 REDIRECT/DNS
+            "CONFIG_IP6_NF_TARGET_REDIRECT"       # Required for IPv6 REDIRECT/DNS
             "CONFIG_IP_SET"
             "CONFIG_TCP_CONG_BBR"
           )
 
           MISSING_FLAGS=0
           for FLAG in "${CRITICAL_FLAGS[@]}"; do
-            if grep -q "$FLAG=y" "$DOT_CONFIG"; then
+            if grep -q "$FLAG=y" "$DOT_CONFIG" || grep -q "$FLAG=m" "$DOT_CONFIG"; then
               echo "✅ $FLAG is ENABLED"
             else
               echo "❌ $FLAG is MISSING!"
@@ -268,10 +271,13 @@ jobs:
           done
 
           if [ "$MISSING_FLAGS" -gt 0 ]; then
-            echo "Error: $MISSING_FLAGS critical networking flags are missing. Check injection logic!"
-            # Optional: Uncomment the next line to force build failure if flags are missing
-            # exit 1
+            echo "::error::🚨 $MISSING_FLAGS critical networking flags are missing. The transparent proxy will not work!"
+            echo "Failing the build to prevent compiling a broken kernel."
+            exit 1
+          else
+            echo "All critical networking and proxy flags are successfully injected!"
           fi
+
 
 
       - name: Compile Kernel (Identity Spoofing)
