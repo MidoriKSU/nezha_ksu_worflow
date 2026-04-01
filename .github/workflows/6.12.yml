@@ -252,18 +252,20 @@ jobs:
           # List of critical flags required for the transparent proxy script
           CRITICAL_FLAGS=(
             "CONFIG_KSU"
-            "CONFIG_NETFILTER_XT_TARGET_MARK=y"
-            "CONFIG_NETFILTER_XT_TARGET_CONNMARK=y"
-            "CONFIG_NETFILTER_XT_MATCH_CONNMARK=y"
-
-            "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE"
-            "CONFIG_NETFILTER_XT_TARGET_TPROXY"
+"CONFIG_NETFILTER_XT_TARGET_MARK=y"
+"CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y"
+"CONFIG_NETFILTER_XT_MARK=y"
+"CONFIG_NETFILTER_XT_CONNMARK=y"
+"CONFIG_NETFILTER_XT_TARGET_CONNMARK=y"
+"CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y"
+            "CONFIG_NETFILTER_XT_TARGET_TPROXY=y"
             "CONFIG_NETFILTER_XT_TARGET_REDIRECT"
             "CONFIG_NETFILTER_XT_MATCH_CONNTRACK"
             "CONFIG_NETFILTER_XT_MARK"
             "CONFIG_NETFILTER_XT_CONNMARK"
-            "CONFIG_IP6_NF_NAT"                   
-            "CONFIG_IP6_NF_TARGET_REDIRECT"       
+       # Crucial for stateful inspection
+            "CONFIG_IP6_NF_NAT"                   # Required for IPv6 REDIRECT/DNS
+            "CONFIG_IP6_NF_TARGET_REDIRECT"       # Required for IPv6 REDIRECT/DNS
             "CONFIG_IP_SET"
             "CONFIG_TCP_CONG_BBR"
           )
