@@ -135,7 +135,6 @@ jobs:
 
       - name: Integrate KernelSU into Source Tree
         run: |
-              
           cd kernel_workspace/common
           
           # 1. Select Repository
