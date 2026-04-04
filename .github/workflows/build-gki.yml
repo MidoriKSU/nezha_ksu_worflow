@@ -138,10 +138,37 @@ jobs:
           cd kernel_workspace/common
           REPO="KOWX712"
           [[ "${{ matrix.variant }}" == "xxksu" ]] && REPO="backslashxx"
+          
+          # Clone KernelSU
           git clone --depth=1 https://github.com/$REPO/KernelSU.git KernelSU
+          
+          # Standard KernelSU Integration
           ln -sf ../KernelSU/kernel drivers/kernelsu
           if ! grep -q "kernelsu/" drivers/Makefile; then echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile; fi
           if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig; fi
+
+          # --- FIX: Header Resolution for KowSU/xxksu ---
+          
+          # 1. Fix klog.h, arch.h, ksu.h (Symlink into subdirs)
+          for subdir in core feature hook infra manager policy runtime selinux sulog supercall; do
+            dir="KernelSU/kernel/${subdir}"
+            [ -d "$dir" ] || continue
+            ln -sf ../include/klog.h  "$dir/klog.h"
+            ln -sf ../include/arch.h  "$dir/arch.h"
+            ln -sf ../include/ksu.h   "$dir/ksu.h"
+          done
+
+          # 2. Fix uapi/app_profile.h
+          mkdir -p KernelSU/kernel/include/uapi
+          ln -sf ../../policy/app_profile.h KernelSU/kernel/include/uapi/app_profile.h
+          
+          # Symlink the newly created uapi folder into all subdirs
+          for subdir in core feature hook infra manager policy runtime selinux sulog supercall; do
+            dir="KernelSU/kernel/${subdir}"
+            [ -d "$dir" ] || continue
+            ln -sfn ../include/uapi "$dir/uapi"
+          done
+          # ----------------------------------------------
 
       - name: Resolve KernelSU Version
         run: |
