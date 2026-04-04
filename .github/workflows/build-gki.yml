@@ -81,10 +81,9 @@ jobs:
         with:
           clean: false
 
-      - name: Prepare Build Environment & Dependencies
+      - name: Prepare Build Environment
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
-          sudo docker image prune -af 2>/dev/null || true
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
             binutils python-is-python3 libssl-dev libelf-dev libdw-dev \
@@ -95,44 +94,35 @@ jobs:
           git clone --depth=1 https://github.com/yapixel/sh "${{ github.workspace }}/sh"
           chmod +x "${{ github.workspace }}/sh/get_ksuver.sh"
 
-      - name: Download & Extract Kernel Source and Toolchains
+      - name: Download Kernel Source and Toolchains
         run: |
           mkdir -p kernel_workspace && cd kernel_workspace
           aria2c -s16 -x16 -k1M https://github.com/cctv18/android_gki_kernel_common/archive/refs/heads/android16-6.12-2025-06.zip -o common.zip
           unzip -q common.zip && mv "android_gki_kernel_common-android16-6.12-2025-06" common && rm common.zip
+          
           aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip -o clang.zip
           unzip -q clang.zip -d clang19 && rm clang.zip
+          
           aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip -o rust.zip
           unzip -q rust.zip -d rust && rm rust.zip
+          
           aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/build-tools.zip -o build-tools.zip
           unzip -q build-tools.zip && rm build-tools.zip
+          
           sed -i 's/ -dirty//g' common/scripts/setlocalversion
 
-      - name: Create Patch Healer Script
+      - name: Create Targeted Patch Healer
         run: |
-          cd kernel_workspace/common
-          cat > heal_patch.py << 'PYEOF'
-                    import sys
+          cat > kernel_workspace/common/heal_patch.py << 'PYEOF'
+          import sys
           def heal(patch_path):
-              with open(patch_path, 'rb') as f:
-                  data = f.read()
-              # Convert Windows CRLF to Unix LF
-              data = data.replace(b'\r\n', b'\n')
-              lines = data.split(b'\n')
-              
-              fixed_lines = []
-              for line in lines:
-                  if not line:
-                      fixed_lines.append(b'')
-                      continue
-                  # Ensure the first character is valid (+, -, or space)
-                  if line[0:1] not in [b'+', b'-', b' ', b'@', b'\\']:
-                      fixed_lines.append(b' ' + line)
-                  else:
-                      fixed_lines.append(line)
-              
-              with open(patch_path, 'wb') as f:
-                  f.write(b'\n'.join(fixed_lines))
+              with open(patch_path, 'r', encoding='utf-8') as f: lines = f.read().splitlines()
+              with open(patch_path, 'w', encoding='utf-8', newline='\n') as f:
+                  for line in lines:
+                      if not line: f.write(' \n'); continue
+                      if line[0] not in ['+', '-', ' ', '@', '\\']: f.write(' ' + line + '\n')
+                      else: f.write(line + '\n')
+          if __name__ == "__main__": heal(sys.argv[1])
           PYEOF
 
       - name: Sync SuSFS Header Source
@@ -172,7 +162,7 @@ jobs:
           esac
           echo "KSU_VER=${KSU_VER}" >> $GITHUB_ENV
 
-      - name: "Patching: xxKSU (Security & Scope Hooks)"
+      - name: "Patching: xxKSU"
         if: matrix.variant == 'xxksu'
         run: |
           cd kernel_workspace/common
@@ -181,30 +171,30 @@ jobs:
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/scope-min-hooks-v1.9.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/scope-min-hooks-v1.9.patch"
 
-      - name: "Patching: KowSU + SuSFS (10+50 Logic)"
+      - name: "Patching: KowSU + SuSFS"
         if: matrix.variant == 'kowsu+susfs'
         run: |
           cd kernel_workspace/common
-          # Kernel-side (50-)
+          # 50-patch (Official, No Healer)
           cp "${{ env.SUSFS_DIR }}/kernel_patches/fs/susfs.c" fs/
           cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs.h" include/linux/
           cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs_def.h" include/linux/
-          patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
+          patch -p1 -l --fuzz=3 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
           
-          # KSU-side (10-) with Healer
+          # 10-patch (Manual, Uses Healer)
           cd KernelSU
           python3 ../heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
 
-      - name: "Patching: KowSU Stock (Manual Hooks & Inline)"
+      - name: "Patching: KowSU Stock"
         if: matrix.variant == 'kowsu'
         run: |
           cd kernel_workspace/common
-          # Kernel-side (69-) with Healer
+          # 69-patch (Manual, Uses Healer)
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/69_pure_manual_hooks_only.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/69_pure_manual_hooks_only.patch"
           
-          # KSU-side (Supercall Inline) with Healer
+          # Inline patch (Manual, Uses Healer)
           cd KernelSU
           python3 ../heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/supercall_inline.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/supercall_inline.patch"
@@ -224,18 +214,15 @@ jobs:
           +	return 1;
            }
           EOF
-          patch -p1 --fuzz=3 < kmi_bypass.patch || (sed -i '/bad_version:/,/^}/ s/return 0;/return 1;/' kernel/module/version.c && sed -i 's/disagrees about version of symbol/disagrees about version of symbol (bypassed)/' kernel/module/version.c)
+          patch -p1 -l --fuzz=3 < kmi_bypass.patch || (sed -i '/bad_version:/,/^}/ s/return 0;/return 1;/' kernel/module/version.c && sed -i 's/disagrees about version of symbol/disagrees about version of symbol (bypassed)/' kernel/module/version.c)
 
       - name: Inject Defconfig Configurations
         run: |
           cd kernel_workspace
           DEFCONFIG="./common/arch/arm64/configs/gki_defconfig"
-          echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> $DEFCONFIG
-          echo "CONFIG_RUST=y" >> $DEFCONFIG
-          echo "CONFIG_ANDROID_BINDER_IPC_RUST=m" >> $DEFCONFIG
-          echo 'CONFIG_LOCALVERSION="-android16-5-g6928909e3148-abogki444322847-4k"' >> $DEFCONFIG
           echo "CONFIG_KSU=y" >> $DEFCONFIG
-          echo "CONFIG_KSU_DEBUG=n" >> $DEFCONFIG
+          echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> $DEFCONFIG
+          echo 'CONFIG_LOCALVERSION="-android16-5-g6928909e3148-abogki444322847-4k"' >> $DEFCONFIG
 
           if [ "${{ matrix.variant }}" = "xxksu" ]; then
             cat >> $DEFCONFIG <<-'EOF'
@@ -265,39 +252,39 @@ jobs:
           EOF
           fi
 
-      - name: "Compilation: GKI Image"
+      - name: Compilation: GKI Image
         run: |
           WORKDIR="$(pwd)"
           export PATH="$WORKDIR/kernel_workspace/clang19/bin:$WORKDIR/kernel_workspace/build-tools/bin:$WORKDIR/kernel_workspace/rust/bin:$PATH"
           cd kernel_workspace/common
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = ${{ needs.setup.outputs.sub_level }}/" Makefile
+          
           wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfakestat.so
           wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfaketimeMT.so
           chmod +x libfakestat.so libfaketimeMT.so
-          export FAKESTAT="2025-09-12 04:57:41"
-          export FAKETIME="@2025-09-12 04:57:41"
+          
           export PRELOAD_LIBS="$(pwd)/libfakestat.so $(pwd)/libfaketimeMT.so"
           export REAL_CLANG_PATH="$WORKDIR/kernel_workspace/clang19/bin/clang"
-          echo '#!/bin/bash' > cc-wrapper && echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> cc-wrapper && echo 'export FAKESTAT="'$FAKESTAT'"' >> cc-wrapper && echo 'export FAKETIME="'$FAKETIME'"' >> cc-wrapper && echo '$REAL_CLANG_PATH "$@"' >> cc-wrapper
-          echo '#!/bin/bash' > ld-wrapper && echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> ld-wrapper && echo 'export FAKESTAT="'$FAKESTAT'"' >> ld-wrapper && echo 'export FAKETIME="'$FAKETIME'"' >> ld-wrapper && echo 'ld.lld "$@"' >> ld-wrapper
+          
+          echo '#!/bin/bash' > cc-wrapper && echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> cc-wrapper && echo '$REAL_CLANG_PATH "$@"' >> cc-wrapper
+          echo '#!/bin/bash' > ld-wrapper && echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> ld-wrapper && echo 'ld.lld "$@"' >> ld-wrapper
           chmod +x cc-wrapper ld-wrapper
-          COMMON_REAL_PATH=$(pwd -P) && ROOT_REAL_PATH=$(dirname "$COMMON_REAL_PATH")
-          export KCFLAGS="-fdebug-prefix-map=$ROOT_REAL_PATH=. -fmacro-prefix-map=$ROOT_REAL_PATH=. -ffile-prefix-map=$ROOT_REAL_PATH=. -no-canonical-prefixes -O2 -pipe -Wno-error -fno-stack-protector"
-          export RUSTC="rustc" BINDGEN="bindgen" CC="clang" LIBCLANG_PATH="$WORKDIR/kernel_workspace/clang19/lib" HOSTCC=clang LD="ld.lld" HOSTLD=ld.lld LLVM=1 LLVM_IAS=1 ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip
-          export KBUILD_BUILD_USER="kleaf" KBUILD_BUILD_HOST="build-host" KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
-          make -j$(nproc --all) O=out gki_defconfig
+          
+          export KCFLAGS="-no-canonical-prefixes -O2 -pipe -Wno-error -fno-stack-protector"
           export CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper"
+          export LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
+          
+          make -j$(nproc --all) O=out gki_defconfig
           make -j$(nproc --all) O=out Image
 
-      - name: Build Flashable Zip (AnyKernel3)
+      - name: Build Flashable Zip
         run: |
           cd kernel_workspace
           git clone https://github.com/yapixel/AnyKernel3 --depth=1
-          rm -rf ./AnyKernel3/.git
           cp ./common/out/arch/arm64/boot/Image ./AnyKernel3/
           BUILD_DATE="$(date +'%d%m%y')"
           cd AnyKernel3
-          ZIP_NAME="${{ matrix.variant }}_popsicle_6.12.${{ needs.setup.outputs.sub_level }}+${{ env.KSU_VER }}-${BUILD_DATE}-susfs-${{ env.SUSFS_VERSION || 'none' }}.zip"
+          ZIP_NAME="${{ matrix.variant }}_popsicle_6.12.${{ needs.setup.outputs.sub_level }}-${BUILD_DATE}.zip"
           zip -r9 "../$ZIP_NAME" *
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
@@ -308,16 +295,14 @@ jobs:
           path: kernel_workspace/${{ env.ZIP_NAME }}
 
   release:
-    name: Publish GitHub Release
+    name: Publish Release
     runs-on: ubuntu-latest
     needs: [setup, build]
     if: needs.setup.outputs.create_release == 'true'
     permissions:
       contents: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Fetch Artifacts
+      - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: kernel-*
@@ -328,5 +313,4 @@ jobs:
         with:
           tag_name: "${{ needs.setup.outputs.release_tag }}"
           name: "GKI 6.12.${{ needs.setup.outputs.sub_level }} — ${{ needs.setup.outputs.release_tag }}"
-          body: "Automated GKI build for android16-6.12."
           files: release_zips/*.zip
