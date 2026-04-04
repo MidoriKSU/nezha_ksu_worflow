@@ -63,7 +63,6 @@ jobs:
       matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
 
     env:
-      # ENABLE_SUSFS is ONLY true for kowsu+susfs variant
       ENABLE_SUSFS: ${{ matrix.variant == 'kowsu+susfs' && 'true' || 'false' }}
       KSU_VARIANT: ${{ matrix.variant }}
       ANDROID_VERSION: 'android16'
@@ -119,7 +118,7 @@ jobs:
                   if not line: fixed.append(b' '); continue
                   if line[0:1] not in [b'+', b'-', b' ', b'\\']: fixed.append(b' ' + line)
                   else: fixed.append(line)
-              with open(patch_path, b'wb') as f:
+              with open(patch_path, 'wb') as f:
                   f.write(b'\n'.join(fixed) + b'\n')
           if __name__ == "__main__": heal(sys.argv[1])
           PYEOF
