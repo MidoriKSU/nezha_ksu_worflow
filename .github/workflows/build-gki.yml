@@ -70,7 +70,7 @@ jobs:
       matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
 
     env:
-      # Logic: Force SuSFS off if 'kowsu-nosusfs' OR 'xxksu' is selected
+      # Force SuSFS off if 'kowsu-nosusfs' OR 'xxksu' is selected
       ENABLE_SUSFS: ${{ (matrix.variant == 'kowsu-nosusfs' || matrix.variant == 'xxksu') && 'false' || needs.setup.outputs.enable_susfs }}
       KSU_VARIANT: ${{ matrix.variant }}
       ANDROID_VERSION: 'android16'
@@ -124,10 +124,14 @@ jobs:
           cd kernel_workspace/common
           case "${{ matrix.variant }}" in
             "kowsu"|"kowsu-nosusfs")
-              git clone --depth=1 https://github.com/KOWX712/KernelSU.git KernelSU
+              KSU_BRANCH="master"
+              git clone --depth=1 --branch "$KSU_BRANCH" \
+                https://github.com/KOWX712/KernelSU.git KernelSU
               ;;
             "xxksu")
-              git clone --depth=1 https://github.com/backslashxx/KernelSU.git KernelSU
+              KSU_BRANCH="master"
+              git clone --depth=1 --branch "$KSU_BRANCH" \
+                https://github.com/backslashxx/KernelSU.git KernelSU
               ;;
           esac
           ln -sf ../KernelSU/kernel drivers/kernelsu
@@ -190,7 +194,7 @@ jobs:
         run: |
           cd kernel_workspace/common
           
-          # SuSFS Kernel Side (Only for kowsu)
+          # SuSFS Kernel Side (Strictly only for kowsu variant)
           if [[ "${{ matrix.variant }}" == "kowsu" && "${{ env.ENABLE_SUSFS }}" == "true" ]]; then
             cp "${{ env.SUSFS_DIR }}/kernel_patches/fs/susfs.c" fs/
             cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs.h" include/linux/
