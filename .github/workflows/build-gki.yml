@@ -153,28 +153,34 @@ jobs:
           if [[ "${{ matrix.variant }}" == "kowsu" || "${{ matrix.variant }}" == "kowsu+susfs" ]]; then
             echo "Applying header resolution fixes for KowSU..."
             KSU_ROOT="KernelSU/kernel"
-            KSU_SUBDIRS="core feature hook infra manager policy runtime selinux sulog supercall"
             
-            # Setup UAPI structure
+            # Create the master uapi directory in the KernelSU include folder
             mkdir -p "$KSU_ROOT/include/uapi"
+            
+            # Link the actual app_profile.h into that uapi folder
+            # Note: In KowSU, it's usually in the policy folder
             if [ -f "$KSU_ROOT/policy/app_profile.h" ]; then
               ln -sf "../../policy/app_profile.h" "$KSU_ROOT/include/uapi/app_profile.h"
             fi
 
-            # Fix include path resolution in subdirectories
+            # List of all subdirectories that might compile .o files
+            KSU_SUBDIRS="core feature hook infra manager policy runtime selinux sulog supercall"
+
             for subdir in $KSU_SUBDIRS; do
               dir="$KSU_ROOT/$subdir"
               [ -d "$dir" ] || continue
               
-              # Symlink headers so #include "file.h" works relative to the subdir
+              # Fix 1: Link core headers so #include "klog.h" works locally
               ln -sf ../include/klog.h  "$dir/klog.h"
               ln -sf ../include/arch.h  "$dir/arch.h"
               ln -sf ../include/ksu.h   "$dir/ksu.h"
               
-              # Create uapi/ link so #include "uapi/app_profile.h" works
+              # Fix 2: Create the uapi symlink so #include "uapi/app_profile.h" works
+              # We use -n to ensure we don't link inside an existing symlink
               ln -sfn ../include/uapi "$dir/uapi"
             done
           fi
+
 
 
 
