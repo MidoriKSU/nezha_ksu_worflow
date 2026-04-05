@@ -282,6 +282,16 @@ jobs:
       - name: Debug KSU feature enum
         run: |
          grep -rn "KSU_FEATURE_KERNEL_UMOUNT" $GITHUB_WORKSPACE/kernel_workspace/common/drivers/kernelsu/
+
+      - name: Debug KSU include chain
+        run: |
+         KSU=$GITHUB_WORKSPACE/kernel_workspace/common/drivers/kernelsu
+         echo "=== policy/feature.h ===" 
+         cat $KSU/policy/feature.h 2>/dev/null || echo "MISSING"
+         echo "=== uapi/feature.h ==="
+         cat $KSU/uapi/feature.h 2>/dev/null || echo "MISSING"
+         echo "=== top-level includes ==="
+         head -5 $KSU/feature/kernel_umount.c
          
       - name: "Compilation: GKI Image"
         run: |
