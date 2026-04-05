@@ -303,6 +303,19 @@ jobs:
          grep -rn "ksu_handle_execveat\|ksu_handle_newfstat_ret\|ksu_handle_stat\|ksu_handle_faccessat\|ksu_handle_sys_reboot" \
          $GITHUB_WORKSPACE/kernel_workspace/common/KernelSU/kernel/ || echo "NONE FOUND"
 
+      - name: Debug xxKSU hook sites
+        if: matrix.variant == 'xxksu'
+        run: |
+          KD=$GITHUB_WORKSPACE/kernel_workspace/common
+          echo "=== fs/exec.c around do_execve ==="
+          grep -n "do_execve\|do_execveat_common\|compat_do_execve" $KD/fs/exec.c | head -30
+          echo "=== fs/open.c around faccessat ==="
+          grep -n "SYSCALL_DEFINE.*faccessat\|faccessat2\|do_faccessat" $KD/fs/open.c | head -20
+          echo "=== fs/stat.c around newfstatat/newfstat ==="
+          grep -n "SYSCALL_DEFINE.*newfstatat\|SYSCALL_DEFINE.*newfstat\b\|SYSCALL_DEFINE.*fstat64\|fstatat64" $KD/fs/stat.c | head -20
+          echo "=== kernel/reboot.c around SYSCALL_DEFINE4(reboot ==="
+          grep -n "SYSCALL_DEFINE4(reboot\|ksu_handle_sys_reboot" $KD/kernel/reboot.c | head -10
+
       - name: "Compilation: GKI Image"
         run: |
           WORKDIR="$(pwd)"
