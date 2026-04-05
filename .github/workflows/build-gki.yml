@@ -160,6 +160,7 @@ jobs:
             cp KernelSU/kernel/policy/*.h drivers/kernelsu/include/uapi/
             
             # Step B: Copy core headers for local includes (klog.h, arch.h, ksu.h)
+            # This handles relative #include "file.h" calls
             cp KernelSU/kernel/include/*.h drivers/kernelsu/
 
             # Step C: Inject Kbuild flags (Essential for standard make O=out builds)
