@@ -163,7 +163,7 @@ jobs:
             KSU_KERNEL_ABS="$(realpath KernelSU/kernel)"
             KSU_POL_ABS="${KSU_KERNEL_ABS}/policy"
             KSU_INC_ABS="${KSU_KERNEL_ABS}/include"
-            KSU_UAPI_ABS="${KSU_KERNEL_ABS}/uapi"
+            KSU_UAPI_ABS="$(realpath KernelSU/uapi)"
 
             # Step A: Create uapi/ inside drivers/kernelsu and populate it.
             # Since drivers/kernelsu is a symlink to KernelSU/kernel, writing
