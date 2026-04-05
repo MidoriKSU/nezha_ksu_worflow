@@ -133,25 +133,39 @@ jobs:
           SUSFS_VERSION=$(grep -m1 'define SUSFS_VERSION' "$SUSFS_DIR/kernel_patches/include/linux/susfs.h" | sed 's/.*"\(.*\)"/\1/')
           echo "SUSFS_VERSION=${SUSFS_VERSION:-unknown}" >> $GITHUB_ENV
 
-      - name: Integrate KernelSU into Source Tree
+            - name: Integrate KernelSU into Source Tree
         run: |
           cd kernel_workspace/common
-
+          
           # 1. Select and Clone Repository
           case "${{ matrix.variant }}" in
             "xxksu") git clone --depth=1 --branch master https://github.com/backslashxx/KernelSU.git KernelSU ;;
             *)       git clone --depth=1 --branch master https://github.com/KOWX712/KernelSU.git KernelSU ;;
           esac
-
-          # 2. Copy KernelSU/kernel/ as a real directory (not a symlink).
-          # A real directory is required so the kernel build system's $(src)
-          # variable resolves correctly inside Kbuild, allowing KSU_KERNEL_DIR
-          # and its -I$(KSU_KERNEL_DIR)/include path to find include/uapi/app_profile.h.
-          cp -r KernelSU/kernel drivers/kernelsu
+          
+          # 2. Link KernelSU to drivers
+          ln -sf ../KernelSU/kernel drivers/kernelsu
 
           # 3. Inject into Build System
           if ! grep -q "kernelsu/" drivers/Makefile; then echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile; fi
           if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig; fi
+
+          # 4. KowSU-Specific Fix (Only for KowSU variants)
+          if [[ "${{ matrix.variant }}" == "kowsu" || "${{ matrix.variant }}" == "kowsu+susfs" ]]; then
+            echo "Applying Corrected Header Fix for KowSU..."
+            
+            # Step A: Create the internal UAPI structure
+            mkdir -p KernelSU/kernel/include/uapi
+            
+            # FIXED: Three levels up to reach the policy folder from include/uapi/
+            ln -sf ../../../policy/app_profile.h KernelSU/kernel/include/uapi/app_profile.h
+
+            # Step B: Ensure include/ is in the compiler's search path
+            # This handles klog.h, arch.h, and the uapi/ folder we just set up
+            if ! grep -q "ccflags-y += -I" drivers/kernelsu/Makefile; then
+              echo 'ccflags-y += -I$(srctree)/drivers/kernelsu/include' >> drivers/kernelsu/Makefile
+            fi
+          fi
 
       - name: Resolve KernelSU Version
         run: |
