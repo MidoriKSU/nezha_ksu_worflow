@@ -137,53 +137,44 @@ jobs:
         run: |
           cd kernel_workspace/common
           
-          # 1. Select Repository
-          REPO="KOWX712"
-          [[ "${{ matrix.variant }}" == "xxksu" ]] && REPO="backslashxx"
+          # 1. Select and Clone Repository
+          case "${{ matrix.variant }}" in
+            "xxksu") git clone --depth=1 --branch master https://github.com/backslashxx/KernelSU.git KernelSU ;;
+            *)       git clone --depth=1 --branch master https://github.com/KOWX712/KernelSU.git KernelSU ;;
+          esac
           
-          # 2. Clone and Link
-          git clone --depth=1 https://github.com/$REPO/KernelSU.git KernelSU
+          # 2. Standard Linkage
           ln -sf ../KernelSU/kernel drivers/kernelsu
-          
-          # 3. Inject Kconfig/Makefile
           if ! grep -q "kernelsu/" drivers/Makefile; then echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile; fi
           if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig; fi
 
-          # 4. Global & Local Header Fixes (KowSU Only)
+          # 3. KowSU-Specific Fixes (Only applied to kowsu variants)
           if [[ "${{ matrix.variant }}" == "kowsu" || "${{ matrix.variant }}" == "kowsu+susfs" ]]; then
-            echo "Applying Deep Header Resolution for KowSU..."
+            echo "Applying Reference Fixes (Recursive) for KowSU..."
             KSU_ROOT="KernelSU/kernel"
             
-            # Create the internal UAPI structure
+            # Setup the master uapi folder
             mkdir -p "$KSU_ROOT/include/uapi"
-            if [ -f "$KSU_ROOT/policy/app_profile.h" ]; then
-              ln -sf "../../policy/app_profile.h" "$KSU_ROOT/include/uapi/app_profile.h"
-            fi
+            ln -sf ../../policy/app_profile.h "$KSU_ROOT/include/uapi/app_profile.h"
 
-            # FAIL-SAFE: Link the uapi header into the kernel's main include directory
-            # This ensures any file including <uapi/app_profile.h> finds it globally
-            mkdir -p include/uapi
-            ln -sf "../../drivers/kernelsu/policy/app_profile.h" "include/uapi/app_profile.h"
-
-            # Local subdirectory mapping
-            KSU_SUBDIRS="core feature hook infra manager policy runtime selinux sulog supercall"
-            for subdir in $KSU_SUBDIRS; do
-              dir="$KSU_ROOT/$subdir"
-              [ -d "$dir" ] || continue
+            # Use find to apply Fix 1 and Fix 2 to EVERY subdirectory
+            # This fixes the 'hook/arm64' errors you saw earlier
+            ABS_INC=$(realpath "$KSU_ROOT/include")
+            
+            find "$KSU_ROOT" -type d | while read -r dir; do
+              # Skip include and uapi folders to avoid self-referencing
+              [[ "$dir" == *"/include"* ]] && continue
+              [[ "$dir" == *"/uapi"* ]] && continue
               
-              # Ensure local includes for klog/arch work
-              ln -sf ../include/klog.h  "$dir/klog.h"
-              ln -sf ../include/arch.h  "$dir/arch.h"
-              ln -sf ../include/ksu.h   "$dir/ksu.h"
+              # Fix 1: local headers (klog.h, arch.h, ksu.h)
+              ln -sf "$ABS_INC/klog.h" "$dir/klog.h"
+              ln -sf "$ABS_INC/arch.h" "$dir/arch.h"
+              ln -sf "$ABS_INC/ksu.h"  "$dir/ksu.h"
               
-              # Ensure uapi/ path works relative to the subdir
-              ln -sfn ../include/uapi "$dir/uapi"
+              # Fix 2: uapi directory link
+              ln -sfn "$ABS_INC/uapi" "$dir/uapi"
             done
           fi
-
-
-
-
 
       - name: Resolve KernelSU Version
         run: |
