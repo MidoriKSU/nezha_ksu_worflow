@@ -1,4 +1,4 @@
-name: 🚀 Release · Publish Artifacts
+name: Release · Publish Artifacts
 
 on:
   workflow_call:
@@ -21,21 +21,21 @@ permissions:
 
 jobs:
   release:
-    name: 🏷️ Publish · ${{ inputs.kernel_ver }} · ${{ inputs.release_tag }}
+    name:  Publish · ${{ inputs.kernel_ver }} · ${{ inputs.release_tag }}
     runs-on: ubuntu-latest
 
     steps:
-      - name: 📥 Checkout Repository
+      - name:  Checkout Repository
         uses: actions/checkout@v6
 
-      - name: 📦 Download Build Artifacts
+      - name: Download Build Artifacts
         uses: actions/download-artifact@v8
         with:
           pattern: 'kernel-*'
           path: release_zips
           merge-multiple: true
 
-      - name: 📝 Compose Release Body
+      - name:  Compose Release Body
         run: |
           VARIANT="${{ inputs.ksu_variant }}"
           KV="${{ inputs.kernel_ver }}"
@@ -100,7 +100,7 @@ jobs:
           - [osm0sis/AnyKernel3](https://github.com/osm0sis/AnyKernel3)
           RELEASE_BODY
 
-      - name: 🏷️ Publish GitHub Release
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: "${{ inputs.release_tag }}"
