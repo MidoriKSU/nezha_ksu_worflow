@@ -1,4 +1,4 @@
-name: Build GKI SUSFS with KowSU/xxKSU
+name: Build GKI SUSFS with KowSU/xxksu Test
 
 on:
   workflow_dispatch:
@@ -12,8 +12,12 @@ on:
           - all
           - kowsu+susfs
           - kowsu
-          - xxksu+susfs
           - xxksu
+      disable_susfs:
+        description: 'Force Disable SuSFS (Mirrors Ref Workflow Logic)'
+        required: false
+        default: false
+        type: boolean
       sub_level:
         description: 'Kernel sublevel (e.g. 23 for 6.12.23)'
         required: true
@@ -43,7 +47,7 @@ jobs:
         run: |
           VARIANT="${{ github.event.inputs.ksu_variant }}"
           if [ "$VARIANT" = "all" ]; then
-            echo 'matrix={"variant":["kowsu+susfs","kowsu","xxksu+susfs","xxksu"]}' >> $GITHUB_OUTPUT
+            echo 'matrix={"variant":["kowsu+susfs","kowsu","xxksu"]}' >> $GITHUB_OUTPUT
           else
             echo "matrix={\"variant\":[\"$VARIANT\"]}" >> $GITHUB_OUTPUT
           fi
@@ -64,7 +68,8 @@ jobs:
       matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
 
     env:
-      ENABLE_SUSFS: ${{ (matrix.variant == 'kowsu+susfs' || matrix.variant == 'xxksu+susfs') && 'true' || 'false' }}
+      # Logic: SuSFS is ONLY enabled if the variant is 'kowsu+susfs' AND the manual override is false.
+      ENABLE_SUSFS: ${{ (matrix.variant == 'kowsu+susfs' && github.event.inputs.disable_susfs == 'false') && 'true' || 'false' }}
       KSU_VARIANT: ${{ matrix.variant }}
       ANDROID_VERSION: 'android16'
       KERNEL_VERSION: '6.12'
@@ -137,48 +142,28 @@ jobs:
       - name: Integrate KernelSU into Source Tree
         run: |
           cd kernel_workspace/common
-
-          # 1. Select and Clone Repository
           case "${{ matrix.variant }}" in
-            "xxksu+susfs"|"xxksu")
-              git clone --depth=1 --branch master https://github.com/backslashxx/KernelSU.git KernelSU ;;
-            *)
-              git clone --depth=1 --branch master https://github.com/KOWX712/KernelSU.git KernelSU ;;
+            "xxksu") git clone --depth=1 --branch master https://github.com/backslashxx/KernelSU.git KernelSU ;;
+            *)       git clone --depth=1 --branch master https://github.com/KOWX712/KernelSU.git KernelSU ;;
           esac
-
-          # 2. Link KernelSU to drivers
           ln -sf ../KernelSU/kernel drivers/kernelsu
-
-          # 3. Inject into Build System
           if ! grep -q "kernelsu/" drivers/Makefile; then echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile; fi
           if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig; fi
 
-          # 4. KowSU Header Fix (uapi/ lives at repo root, not under kernel/)
           if [[ "${{ matrix.variant }}" == "kowsu" || "${{ matrix.variant }}" == "kowsu+susfs" ]]; then
             echo "Applying KowSU Header Fix..."
-
             KSU_KERNEL_ABS="$(realpath KernelSU/kernel)"
             KSU_POL_ABS="${KSU_KERNEL_ABS}/policy"
             KSU_INC_ABS="${KSU_KERNEL_ABS}/include"
             KSU_UAPI_ABS="$(realpath KernelSU/uapi)"
-
-            # Step A: Ensure uapi/ exists inside KernelSU/kernel and is populated
             mkdir -p "${KSU_KERNEL_ABS}/uapi"
             cp -f "${KSU_UAPI_ABS}"/*.h "${KSU_KERNEL_ABS}/uapi/" 2>/dev/null || true
-
-            # Step B: Copy uapi/ headers into every subdirectory under drivers/kernelsu
             find drivers/kernelsu -type d | while read -r dir; do
               mkdir -p "$dir/uapi"
               cp -f "${KSU_UAPI_ABS}"/*.h "$dir/uapi/" 2>/dev/null || true
-            done
-
-            # Step C: Copy policy/ and include/ headers into every subdir
-            find drivers/kernelsu -type d | while read -r dir; do
               cp -f "${KSU_POL_ABS}"/*.h "$dir/" 2>/dev/null || true
               cp -f "${KSU_INC_ABS}"/*.h "$dir/" 2>/dev/null || true
             done
-
-            # Step D: Global main kernel injection
             mkdir -p include/uapi
             cp -f "${KSU_POL_ABS}"/*.h include/uapi/
             cp -f "${KSU_POL_ABS}"/*.h include/
@@ -192,7 +177,7 @@ jobs:
             "kowsu+susfs"|"kowsu")
               KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "KOWX712" "KernelSU" "master" || echo "unknown")
               ;;
-            "xxksu+susfs"|"xxksu")
+            "xxksu")
               KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "backslashxx" "KernelSU" "master" || echo "unknown")
               ;;
           esac
@@ -207,50 +192,17 @@ jobs:
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/scope-min-hooks-v1.9.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/scope-min-hooks-v1.9.patch"
 
-      - name: "Patching: xxKSU + SuSFS"
-        if: matrix.variant == 'xxksu+susfs'
+      - name: "Patching: KowSU + SuSFS (Enabled Path)"
+        if: env.ENABLE_SUSFS == 'true'
         run: |
           cd kernel_workspace/common
-
-          # 1. Kernel-side SuSFS
           cp "${{ env.SUSFS_DIR }}/kernel_patches/fs/susfs.c" fs/
           cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs.h" include/linux/
           cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs_def.h" include/linux/
           patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
-
-          # 2. KSU-side SuSFS
-          cd KernelSU
-          python3 ../heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/0001-xxKSU-kernel-implement-susfs-v2.1.0-De-inlined.patch"
-          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/0001-xxKSU-kernel-implement-susfs-v2.1.0-De-inlined.patch"
-
-      - name: "Patching: KowSU + SuSFS (10+50 Logic)"
-        if: matrix.variant == 'kowsu+susfs'
-        run: |
-          cd kernel_workspace/common
-
-          # 1. Kernel-side SuSFS
-          cp "${{ env.SUSFS_DIR }}/kernel_patches/fs/susfs.c" fs/
-          cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs.h" include/linux/
-          cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs_def.h" include/linux/
-          patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
-
-          # 2. KSU-side SuSFS
           cd KernelSU
           python3 ../heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
-
-      - name: "Patching: KowSU Stock (Manual Hooks & Inline)"
-        if: matrix.variant == 'kowsu'
-        run: |
-          cd kernel_workspace/common
-          # 1. Main Kernel Patch
-          python3 heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/69_ksu_manual_hooks.patch"
-          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/69_ksu_manual_hooks.patch"
-
-          # 2. KSU-side Patch
-          cd KernelSU
-          python3 ../heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/supercall_inline.patch"
-          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/supercall_inline.patch"
 
       - name: Apply KMI/Vermagic Bypass Logic
         run: |
@@ -276,7 +228,7 @@ jobs:
           echo "CONFIG_KSU=y" >> $DEFCONFIG
           echo "CONFIG_KSU_DEBUG=n" >> $DEFCONFIG
 
-          if [[ "${{ matrix.variant }}" == "xxksu+susfs" || "${{ matrix.variant }}" == "xxksu" ]]; then
+          if [ "${{ matrix.variant }}" = "xxksu" ]; then
             cat >> $DEFCONFIG <<-'EOF'
           CONFIG_KSU_EXTRAS=y
           CONFIG_KSU_LSM_SECURITY_HOOKS=n
@@ -303,24 +255,15 @@ jobs:
           CONFIG_KSU_SUSFS_SUS_MAP=y
           EOF
           fi
-
-      - name: Debug xxKSU LSM registration
-        if: matrix.variant == 'xxksu'
-        run: |
-         grep -rn "security_add_hooks\|lsm_info\|DEFINE_LSM" \
-         $GITHUB_WORKSPACE/kernel_workspace/common/KernelSU/kernel/ | grep -v ".orig"
-         echo "---"
-         grep -rn "CONFIG_KSU_LSM_SECURITY_HOOKS" \
-         $GITHUB_WORKSPACE/kernel_workspace/common/KernelSU/kernel/
-
+          
       - name: "Compilation: GKI Image"
         run: |
           WORKDIR="$(pwd)"
           export PATH="$WORKDIR/kernel_workspace/clang19/bin:$WORKDIR/kernel_workspace/build-tools/bin:$WORKDIR/kernel_workspace/rust/bin:$PATH"
           cd kernel_workspace/common
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = ${{ needs.setup.outputs.sub_level }}/" Makefile
-          wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfakestat.so
-          wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfaketimeMT.so
+          wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfakestat.so || touch libfakestat.so
+          wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfaketimeMT.so || touch libfaketimeMT.so
           chmod +x libfakestat.so libfaketimeMT.so
           export FAKESTAT="2025-09-12 04:57:41"
           export FAKETIME="@2025-09-12 04:57:41"
@@ -345,28 +288,29 @@ jobs:
           cp ./common/out/arch/arm64/boot/Image ./AnyKernel3/
           BUILD_DATE="$(date +'%d%m%y')"
           cd AnyKernel3
-          ZIP_NAME="${{ matrix.variant }}_popsicle_6.12.${{ needs.setup.outputs.sub_level }}+${{ env.KSU_VER }}-${BUILD_DATE}-susfs-${{ env.SUSFS_VERSION || 'none' }}.zip"
+          SUSFS_STATE="${{ env.ENABLE_SUSFS == 'true' && 'susfs' || 'stock' }}"
+          ZIP_NAME="${{ matrix.variant }}_popsicle_6.12.${{ needs.setup.outputs.sub_level }}+${{ env.KSU_VER }}-${BUILD_DATE}-${SUSFS_STATE}.zip"
           zip -r9 "../$ZIP_NAME" *
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
       - name: Store Build Artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
-          name: kernel-${{ matrix.variant }}
+          name: kernel-${{ matrix.variant }}-${{ env.ENABLE_SUSFS }}
           path: kernel_workspace/${{ env.ZIP_NAME }}
 
   release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
     needs: [setup, build]
-    if: needs.setup.outputs.create_release == 'true'
+    if: always() && needs.setup.outputs.create_release == 'true'
     permissions:
       contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v6
       - name: Fetch Artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           pattern: kernel-*
           path: release_zips
@@ -376,5 +320,8 @@ jobs:
         with:
           tag_name: "${{ needs.setup.outputs.release_tag }}"
           name: "GKI 6.12.${{ needs.setup.outputs.sub_level }} — ${{ needs.setup.outputs.release_tag }}"
-          body: "Automated GKI build for android16-6.12."
+          body: |
+            Automated GKI build for android16-6.12.
+            Sublevel: ${{ needs.setup.outputs.sub_level }}
+            SuSFS Status: ${{ env.ENABLE_SUSFS == 'true' && '✅ Enabled' || '❌ Disabled/Stock' }}
           files: release_zips/*.zip
