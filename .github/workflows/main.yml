@@ -1,4 +1,4 @@
-name: 🏗️ Build GKI · Popsicle (SM8850)
+name:  Build GKI  Popsicle (SM8850)
 on:
   workflow_dispatch:
     inputs:
@@ -28,11 +28,11 @@ permissions:
   packages: write
 
 jobs:
-  # ─────────────────────────────────────────────
-  # 1 · SETUP
-  # ─────────────────────────────────────────────
+  # 
+  # 1  SETUP
+  # 
   setup:
-    name: 🔧 Setup · Resolve Build Config
+    name:  Setup  Resolve Build Config
     runs-on: ubuntu-latest
     outputs:
       release_tag:       ${{ steps.config.outputs.release_tag }}
@@ -68,44 +68,44 @@ jobs:
             echo "build_xxksu=false"       >> $GITHUB_OUTPUT
           fi
 
-  # ─────────────────────────────────────────────
-  # 2 · BUILD — KowSU + SuSFS
-  # ─────────────────────────────────────────────
+  # 
+  # 2  BUILD  KowSU + SuSFS
+  # 
   build_kowsu_susfs:
-    name: 🛠️ Build · KowSU + SuSFS
+    name:  Build  KowSU + SuSFS
     needs: setup
     if: needs.setup.outputs.build_kowsu_susfs == 'true'
     uses: ./.github/workflows/build-kowsu-susfs.yml
     with:
       sub_level: ${{ inputs.sub_level }}
 
-  # ─────────────────────────────────────────────
-  # 3 · BUILD — KowSU (vanilla)
-  # ─────────────────────────────────────────────
+  # 
+  # 3  BUILD  KowSU (vanilla)
+  # 
   build_kowsu:
-    name: 🛠️ Build · KowSU
+    name:  Build  KowSU
     needs: setup
     if: needs.setup.outputs.build_kowsu == 'true'
     uses: ./.github/workflows/build-kowsu.yml
     with:
       sub_level: ${{ inputs.sub_level }}
 
-  # ─────────────────────────────────────────────
-  # 4 · BUILD — xxKSU
-  # ─────────────────────────────────────────────
+  # 
+  # 4  BUILD  xxKSU
+  # 
   build_xxksu:
-    name: 🛠️ Build · xxKSU
+    name:  Build  xxKSU
     needs: setup
     if: needs.setup.outputs.build_xxksu == 'true'
     uses: ./.github/workflows/build-xxksu.yml
     with:
       sub_level: ${{ inputs.sub_level }}
 
-  # ─────────────────────────────────────────────
-  # 5 · RELEASE
-  # ─────────────────────────────────────────────
+  # 
+  # 5  RELEASE
+  # 
   release:
-    name: 🚀 Release · Publish Artifacts
+    name:  Release  Publish Artifacts
     needs: [setup, build_kowsu_susfs, build_kowsu, build_xxksu]
     if: |
       always() &&
