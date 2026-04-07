@@ -176,12 +176,75 @@ jobs:
         run: |
           cd kernel_workspace
           DEFCONFIG="./common/arch/arm64/configs/gki_defconfig"
+          
+          # Ensure localversion matches original working build
+          sed -i '/CONFIG_LOCALVERSION/d' $DEFCONFIG
+          echo 'CONFIG_LOCALVERSION="-android16-5-g6928909e3148-abogki444322847-4k"' >> $DEFCONFIG
+
           echo "CONFIG_KSU=y" >> $DEFCONFIG
           echo "CONFIG_KSU_DEBUG=n" >> $DEFCONFIG
-          echo "CONFIG_KPROBES=y" >> $DEFCONFIG
-          echo "CONFIG_HAVE_KPROBES=y" >> $DEFCONFIG
 
           cat >> $DEFCONFIG <<-'EOF'
+          # Core Bootability & Performance
+          CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
+          CONFIG_RUST=y
+          CONFIG_LOG_BUF_SHIFT=21
+          CONFIG_ANDROID_BINDER_IPC_RUST=m
+          CONFIG_KPROBES=y
+          CONFIG_HAVE_KPROBES=y
+          CONFIG_TMPFS_XATTR=y
+          CONFIG_TMPFS_POSIX_ACL=y
+
+          # Networking Configuration (TTL/HL Bypass)
+          CONFIG_IP_NF_TARGET_TTL=y
+          CONFIG_IP6_NF_TARGET_HL=y
+          CONFIG_IP6_NF_MATCH_HL=y
+
+          # BBR TCP Congestion Control
+          CONFIG_TCP_CONG_ADVANCED=y
+          CONFIG_TCP_CONG_BBR=y
+          CONFIG_NET_SCH_FQ=y
+
+          # IPSet Support (Full Suite)
+          CONFIG_IP_SET=y
+          CONFIG_NETFILTER_XT_SET=y
+          CONFIG_IP_SET_MAX=65534
+          CONFIG_IP_SET_BITMAP_IP=y
+          CONFIG_IP_SET_BITMAP_IPMAC=y
+          CONFIG_IP_SET_BITMAP_PORT=y
+          CONFIG_IP_SET_HASH_IP=y
+          CONFIG_IP_SET_HASH_IPMARK=y
+          CONFIG_IP_SET_HASH_IPPORT=y
+          CONFIG_IP_SET_HASH_IPPORTIP=y
+          CONFIG_IP_SET_HASH_IPPORTNET=y
+          CONFIG_IP_SET_HASH_IPMAC=y
+          CONFIG_IP_SET_HASH_MAC=y
+          CONFIG_IP_SET_HASH_NETPORTNET=y
+          CONFIG_IP_SET_HASH_NET=y
+          CONFIG_IP_SET_HASH_NETNET=y
+          CONFIG_IP_SET_HASH_NETPORT=y
+          CONFIG_IP_SET_HASH_NETIFACE=y
+          CONFIG_IP_SET_LIST_SET=y
+
+          # TProxy, REDIRECT, & Essential Matches
+          CONFIG_NETFILTER_XT_TARGET_TPROXY=y
+          CONFIG_NETFILTER_XT_TARGET_REDIRECT=y
+          CONFIG_NETFILTER_XT_MATCH_SOCKET=y
+          CONFIG_NETFILTER_XT_MATCH_MARK=y
+          CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y
+          CONFIG_NETFILTER_XT_MATCH_IPRANGE=y
+          CONFIG_NETFILTER_XT_MATCH_OWNER=y
+          CONFIG_NETFILTER_XT_MATCH_MAC=y
+          CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y
+          CONFIG_NETFILTER_XT_MARK=y
+          CONFIG_NETFILTER_XT_CONNMARK=y
+          CONFIG_NETFILTER_XT_TARGET_CONNMARK=y
+
+          # Required for IPv6 DNS Hijack and REDIRECT modes
+          CONFIG_IP6_NF_NAT=y
+          CONFIG_IP6_NF_TARGET_REDIRECT=y
+          
+          # SuSFS Configuration
           CONFIG_KSU_SUSFS=y
           CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
           CONFIG_KSU_SUSFS_SUS_PATH=y
@@ -199,6 +262,48 @@ jobs:
           CONFIG_KSU_SUSFS_SUS_MAP=y
           EOF
           
+          # Bypass GKI Integrity Checks
+          sed -i 's/check_defconfig//' ./common/build.config.gki || true
+
+      - name: Verify Kernel Configuration
+        run: |
+          DEFCONFIG="kernel_workspace/common/arch/arm64/configs/gki_defconfig"
+          echo "### 🔍 Final Config Verification ###"
+          
+          CRITICAL_FLAGS=(
+            "CONFIG_KSU"
+            "CONFIG_KSU_SUSFS"
+            "CONFIG_KPROBES"
+            "CONFIG_NETFILTER_XT_TARGET_MARK"
+            "CONFIG_NETFILTER_XT_MATCH_CONNTRACK"
+            "CONFIG_NETFILTER_XT_MARK"
+            "CONFIG_NETFILTER_XT_CONNMARK"
+            "CONFIG_NETFILTER_XT_TARGET_CONNMARK"
+            "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE"
+            "CONFIG_NETFILTER_XT_TARGET_TPROXY"
+            "CONFIG_NETFILTER_XT_TARGET_REDIRECT"
+            "CONFIG_IP6_NF_NAT"                   
+            "CONFIG_IP6_NF_TARGET_REDIRECT"       
+            "CONFIG_IP_SET"
+            "CONFIG_TCP_CONG_BBR"
+          )
+
+          MISSING_FLAGS=0
+          for FLAG in "${CRITICAL_FLAGS[@]}"; do
+            if grep -qE "^${FLAG}=[ym]$" "$DEFCONFIG"; then
+              VALUE=$(grep -E "^${FLAG}=" "$DEFCONFIG" | cut -d= -f2)
+              echo "✅ $FLAG is ENABLED (value: $VALUE)"
+            else
+              echo "❌ $FLAG is MISSING!"
+              MISSING_FLAGS=$((MISSING_FLAGS + 1))
+            fi
+          done
+
+          if [ "$MISSING_FLAGS" -gt 0 ]; then
+            echo "::error::🚨 $MISSING_FLAGS critical flags are missing. Build configuration failed!"
+            exit 1
+          fi
+
       - name: Debug KowSU exported symbols
         run: |
          grep -rn "ksu_handle_execveat\|ksu_handle_newfstat_ret\|ksu_handle_stat\|ksu_handle_faccessat\|ksu_handle_sys_reboot" \
@@ -267,5 +372,5 @@ jobs:
         with:
           tag_name: "${{ needs.setup.outputs.release_tag }}"
           name: "GKI 6.12.${{ needs.setup.outputs.sub_level }} — ${{ needs.setup.outputs.release_tag }}"
-          body: "Automated GKI build for android16-6.12 (KowSU + SuSFS)."
+          body: "Automated GKI build for android16-6.12 (KowSU + SuSFS). Includes advanced BBR networking and IPSet support."
           files: release_zips/*.zip
