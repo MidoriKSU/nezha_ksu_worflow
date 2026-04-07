@@ -71,11 +71,11 @@ jobs:
   # ─────────────────────────────────────────────
   # 2 · BUILD — KowSU + SuSFS
   # ─────────────────────────────────────────────
-  build_susfs:
+  build_kowsu_susfs:
     name: 🛠️ Build · KowSU + SuSFS
     needs: setup
     if: needs.setup.outputs.build_kowsu_susfs == 'true'
-    uses: ./.github/workflows/build-susfs.yml
+    uses: ./.github/workflows/build-kowsu-susfs.yml
     with:
       sub_level: ${{ inputs.sub_level }}
 
@@ -106,7 +106,7 @@ jobs:
   # ─────────────────────────────────────────────
   release:
     name: 🚀 Release · Publish Artifacts
-    needs: [setup, build_susfs, build_kowsu, build_xxksu]
+    needs: [setup, build_kowsu_susfs, build_kowsu, build_xxksu]
     if: |
       always() &&
       inputs.create_release == true &&
@@ -115,10 +115,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    env:
-      VARIANT:    ${{ inputs.ksu_variant }}
-      KERNEL_VER: ${{ needs.setup.outputs.kernel_ver }}
-      TAG:        ${{ needs.setup.outputs.release_tag }}
 
     steps:
       - name: 📥 Checkout repository
@@ -132,12 +128,10 @@ jobs:
           merge-multiple: true
 
       - name: 📝 Compose release body
-        id: body
         run: |
           VARIANT="${{ inputs.ksu_variant }}"
           KV="${{ needs.setup.outputs.kernel_ver }}"
 
-          # ── Variant table rows (only for what was built) ─────────────
           ROWS=""
 
           if [[ "$VARIANT" == "all" || "$VARIANT" == "kowsu+susfs" ]]; then
@@ -152,7 +146,6 @@ jobs:
             ROWS+="| **xxKSU** | [backslashxx/KernelSU](https://github.com/backslashxx/KernelSU) | — |\n"
           fi
 
-          # ── Assemble body ─────────────────────────────────────────────
           cat <<RELEASE_BODY > release_body.md
           ## 📱 Popsicle GKI Kernel — \`${KV}\`
           > **Device:** Xiaomi Popsicle · SM8850 (Snapdragon 8 Elite)
