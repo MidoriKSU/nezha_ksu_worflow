@@ -1,6 +1,6 @@
 --- a/fs/exec.c
 +++ b/fs/exec.c
-@@ -2054,6 +2054,12 @@ int kernel_execve(const char *kernel_filename,
+@@ -1413,6 +1413,12 @@ int kernel_execve(const char *kernel_filename,
  	return retval;
  }
  
@@ -13,7 +13,7 @@
  static int do_execve(struct filename *filename,
  	const char __user *const __user *__argv,
  	const char __user *const __user *__envp)
-@@ -2060,6 +2066,10 @@ static int do_execve(struct filename *filename,
+@@ -1421,6 +1427,9 @@ static int do_execve(struct filename *filename,
  {
  	struct user_arg_ptr argv = { .ptr.native = __argv };
  	struct user_arg_ptr envp = { .ptr.native = __envp };
@@ -23,10 +23,11 @@
  	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
  }
  
-@@ -2087,6 +2097,10 @@ static int compat_do_execve(struct filename *filename,
- 		.is_compat = true,
- 		.ptr.compat = __envp,
- 	};
+@@ -1445,6 +1454,9 @@ static int compat_do_execve(struct filename *filename,
+ 	const compat_uptr_t __user *__envp)
+ {
+ 	struct user_arg_ptr argv = { .is_compat = true, .ptr.compat = __argv };
+ 	struct user_arg_ptr envp = { .is_compat = true, .ptr.compat = __envp };
 +#ifdef CONFIG_KSU // 32-bit ksud and 32-on-64 support
 +	ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
 +#endif
@@ -110,3 +111,4 @@
  
  	/* We only trust the superuser with rebooting the system. */
  	if (!ns_capable(pid_ns->user_ns, CAP_SYS_BOOT))
+  
