@@ -1,13 +1,12 @@
 --- a/security/security.c
 +++ b/security/security.c
-@@ -1296,6 +1296,12 @@ int security_bprm_creds_from_file(struct linux_binprm *bprm, const struct file
- 	return call_int_hook(bprm_creds_from_file, bprm, file);
- }
- 
+@@ -1295,6 +1295,16 @@ int security_bprm_creds_from_file(struct linux_binprm *bprm, const struct file
+  * Return: Returns 0 if the hook is successful and permission is granted.
+  */
 +#ifdef CONFIG_KSU
 +extern int ksu_bprm_check(struct linux_binprm *bprm);
 +extern int ksu_inode_rename(struct inode *old_dir, struct dentry *old_dentry,
-+			    struct inode *new_dir, struct dentry *new_dentry);
++                            struct inode *new_dir, struct dentry *new_dentry);
 +extern int ksu_task_fix_setuid(struct cred *new, const struct cred *old, int flags);
 +extern int ksu_file_permission(struct file *file, int mask);
 +#endif
@@ -15,32 +14,32 @@
  int security_bprm_check(struct linux_binprm *bprm)
  {
 +#ifdef CONFIG_KSU
-+	ksu_bprm_check(bprm);
++        ksu_bprm_check(bprm);
 +#endif
- 	return call_int_hook(bprm_check_security, bprm);
+         return call_int_hook(bprm_check_security, bprm);
  }
-@@ -2252,6 +2258,10 @@ int security_inode_rename(struct inode *old_dir, struct dentry *old_dentry,
- 	if (unlikely(IS_PRIVATE(d_backing_inode(old_dentry)) ||
- 		     (d_is_positive(new_dentry) &&
- 		      IS_PRIVATE(d_backing_inode(new_dentry)))))
+@@ -2252,6 +2262,10 @@ int security_inode_rename(struct inode *old_dir, struct dentry *old_dentry,
+         if (unlikely(IS_PRIVATE(d_backing_inode(old_dentry)) ||
+                      (d_is_positive(new_dentry) &&
+                       IS_PRIVATE(d_backing_inode(new_dentry)))))
 +#ifdef CONFIG_KSU
-+	ksu_inode_rename(old_dir, old_dentry, new_dir, new_dentry);
++        ksu_inode_rename(old_dir, old_dentry, new_dir, new_dentry);
 +#endif
- 		return 0;
+                 return 0;
  
- 	if (flags & RENAME_EXCHANGE) {
-@@ -2843,6 +2853,10 @@ int security_file_permission(struct file *file, int mask)
+         if (flags & RENAME_EXCHANGE) {
+@@ -2843,6 +2857,10 @@ int security_file_permission(struct file *file, int mask)
  {
 +#ifdef CONFIG_KSU
-+	ksu_file_permission(file, mask);
++        ksu_file_permission(file, mask);
 +#endif
- 	return call_int_hook(file_permission, file, mask);
+         return call_int_hook(file_permission, file, mask);
  }
-@@ -3415,6 +3425,10 @@ int security_task_fix_setuid(struct cred *new, const struct cred *old,
- 			     int flags)
+@@ -3415,6 +3429,10 @@ int security_task_fix_setuid(struct cred *new, const struct cred *old,
+                              int flags)
  {
 +#ifdef CONFIG_KSU
-+	ksu_task_fix_setuid(new, old, flags);
++        ksu_task_fix_setuid(new, old, flags);
 +#endif
- 	return call_int_hook(task_fix_setuid, new, old, flags);
+         return call_int_hook(task_fix_setuid, new, old, flags);
  }
