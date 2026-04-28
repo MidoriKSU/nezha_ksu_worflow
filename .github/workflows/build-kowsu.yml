@@ -48,7 +48,7 @@ jobs:
       - name:  Setup KowSU
         run: |
           cd kernel_workspace/common
-          git clone --depth=1 --branch=master https://github.com/KOWX712/KernelSU.git KernelSU
+          git clone --depth=1 --branch=main https://github.com/midori01/KernelSU.git KernelSU
 
           ln -sf ../KernelSU/kernel drivers/kernelsu
           grep -q "kernelsu" drivers/Makefile || echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
