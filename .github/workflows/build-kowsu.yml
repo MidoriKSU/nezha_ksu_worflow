@@ -120,7 +120,7 @@ jobs:
           cp "$IMAGE" ./AnyKernel3/ && cd AnyKernel3
 
           BUILD_DATE="$(date +'%y%m%d')"
-          ZIP_NAME="kowsu_popsicle_6.12.${{ inputs.sub_level }}-${BUILD_DATE}.zip"
+          ZIP_NAME="midorisu_nezha_6.12.${{ inputs.sub_level }}-${BUILD_DATE}.zip"
           zip -r9 "../$ZIP_NAME" *
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
