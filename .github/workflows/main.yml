@@ -1,4 +1,4 @@
-name:  Build GKI  Popsicle (SM8850)
+name:  Build GKI  Nezha (SM8850)
 on:
   workflow_dispatch:
     inputs:
